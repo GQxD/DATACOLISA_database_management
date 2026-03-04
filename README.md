@@ -1,11 +1,11 @@
-﻿# DATACOLISA - Guide logiciel
+﻿# DATACOLISA - Software Guide
 
-## Objectif
-DATACOLISA est un outil d'import métier pour transférer des données depuis un fichier Excel source vers un template cible, avec contrôle utilisateur avant écriture.
+## Purpose
+DATACOLISA is a business import tool used to transfer data from a source Excel file into a target template, with user validation before writing.
 
-## Prérequis / installation
-- Version Python recommandée: `3.12` (3.11+ fonctionne en général, mais 3.12 est la version de référence du projet).
-- Installer les dépendances:
+## Requirements / Installation
+- Recommended Python version: `3.12` (`3.11+` usually works, but `3.12` is the project baseline).
+- Install dependencies:
 
 ```powershell
 python -m venv .venv
@@ -13,45 +13,49 @@ python -m venv .venv
 pip install -r requirements.txt
 ```
 
-## Démarrage rapide (quoi lancer)
-- Interface principale (recommandé): `python app/ui_pyside6_poc.py`
-- Mode script/CLI d'import (avancé): `python app/datacolisa_importer.py --help`
+## Quick Start (what to run)
+- Main interface (recommended): `python app/ui_pyside6_poc.py`
+- Import script / CLI mode (advanced): `python app/datacolisa_importer.py --help`
 
-## Ce que fait le logiciel
-- Charge une source Excel `.xls`.
-- Filtre les lignes sur une plage de références (`REF`).
-- Permet une sélection manuelle des lignes à importer.
-- Vérifie les champs métier obligatoires.
-- Importe vers le template cible en préservant les colonnes calculées.
-- Gère les doublons selon une stratégie (`alert`, `ignore`, `replace`).
-- Produit un historique d'import pour suivi et réimport.
+## What the Software Does
+- Loads a source `.xls` Excel file.
+- Filters rows based on a reference range (`REF`).
+- Allows manual row selection before import.
+- Validates required business fields.
+- Imports data into the target template while preserving computed columns.
+- Handles duplicates with a selectable policy (`alert`, `ignore`, `replace`).
+- Produces import history files for tracking and re-import workflows.
 
-## Format de base supporté
-Le logiciel fonctionne pour un seul format de base de données:
-- Source attendue: fichier `.xls` avec la structure métier DATACOLISA.
-- Onglet source attendu: `Travail4avril2012`.
-- Cible attendue: `Mapping/COLISA_template_interne.xlsx`.
-- Onglet cible attendu: `Feuil1`.
-- Mapping fixe: positions/en-têtes métier définies dans le code (`app/datacolisa_importer.py`) 
+## Supported Base Format
+The software currently supports a single data base format:
+- Expected source: `.xls` file matching DATACOLISA business structure.
+- Expected source sheet: `Travail4avril2012`.
+- Expected target file: `Mapping/COLISA_template_interne.xlsx`.
+- Expected target sheet: `Feuil1`.
+- Fixed mapping: business headers/positions defined in code (`app/datacolisa_importer.py`).
 
-Si la structure source change (colonnes, onglet, position), le logiciel doit être adapté dans le mapping.
+If the source structure changes (columns, sheet, positions), the mapping must be updated in code.
 
-## Utilisation (interface PySide6)
-1. Lancer l'application `app/ui_pyside6_poc.py` (ou l'exécutable si build déjà fait).
-2. Sélectionner le fichier source `.xls`.
-3. Vérifier la plage REF à traiter.
-4. Charger les lignes et contrôler la sélection dans le tableau.
-5. Lancer l'import vers le fichier de sortie.
-6. Consulter le fichier d'historique pour les statuts (`importé`, `non_importe_manuel`, `a_reimporter`).
+## Usage (PySide6 Interface)
+1. Start `app/ui_pyside6_poc.py` (or the executable, if already built).
+2. Select the source `.xls` file.
+3. Check the `REF` range to process.
+4. Load rows and verify selection in the table.
+5. Run import to the output file.
+6. Review the history file statuses (`importe`, `non_importe_manuel`, `a_reimporter`).
 
-## Fichiers utilisés
-- Entrée métier locale: fichier `.xls` utilisateur.
+## Files Used
+- Local business input: user `.xls` file.
 - Template: `Mapping/COLISA_template_interne.xlsx`.
-- Sorties locales: `COLISA_imported*.xlsx`, `import_history*.json`, `selection_import.csv`.
-- Dépendances Python: `requirements.txt`.
+- Local outputs: `COLISA_imported*.xlsx`, `import_history*.json`, `selection_import.csv`.
+- Python dependencies: `requirements.txt`.
 
-## Données métier et Git
-- Le dépôt contient le code, les assets et le template, pas les jeux de données de production.
+## Business Data and Git
+- This repository contains source code, assets, and template files, but not production data sets.
 
-## Assistance au développement
-Le code de ce dépôt a bénéficié du support d'outils d'intelligence artificielle pour l'optimisation syntaxique et la documentation.
+## Development Support
+This repository benefited from AI-assisted support for syntax optimization and documentation.
+
+## License
+This project is licensed under the GNU General Public License v3.0 (GPL-3.0).
+See `LICENSE`.
