@@ -16,7 +16,7 @@ DATACOLISA est un outil d'import métier pour transférer des données depuis un
 Le logiciel fonctionne pour un seul format de base de données:
 - Source attendue: fichier `.xls` avec la structure métier DATACOLISA.
 - Onglet source attendu: `Travail4avril2012`.
-- Cible attendue: `COLISA_template_interne.xlsx`.
+- Cible attendue: `Mapping/COLISA_template_interne.xlsx`.
 - Onglet cible attendu: `Feuil1`.
 - Mapping fixe: positions/en-têtes métier définies dans le code (`app/datacolisa_importer.py`) et le contexte (`context master/master_context.md`).
 
@@ -32,7 +32,7 @@ Si la structure source change (colonnes, onglet, position), le logiciel doit êt
 
 ## Fichiers utilisés
 - Entrée métier locale: fichier `.xls` utilisateur.
-- Template: `COLISA_template_interne.xlsx`.
+- Template: `Mapping/COLISA_template_interne.xlsx`.
 - Sorties locales: `COLISA_imported*.xlsx`, `import_history*.json`, `selection_import.csv`.
 
 ## Données métier et Git

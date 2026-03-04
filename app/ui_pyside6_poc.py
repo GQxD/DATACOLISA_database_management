@@ -116,7 +116,7 @@ class MainWindow(QMainWindow):
         resource_base = _resource_root()
         self.source_path = app_base / "PacFinalTL14novembrel2012.xls"
         self.source_sheet = core.DEFAULT_SOURCE_SHEET
-        self.target_path = resource_base / "COLISA_template_interne.xlsx"
+        self.target_path = resource_base / "Mapping" / "COLISA_template_interne.xlsx"
         self.target_sheet = core.DEFAULT_TARGET_SHEET
         self.out_path = app_base / "COLISA_imported.xlsx"
         self.history_path = app_base / "import_history.json"

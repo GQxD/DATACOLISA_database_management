@@ -4,7 +4,7 @@ import os
 
 SPEC_DIR = os.path.abspath(globals().get("SPECPATH", os.getcwd()))
 PROJECT_ROOT = os.path.abspath(os.path.join(SPEC_DIR, ".."))
-TEMPLATE_FILE = os.path.join(PROJECT_ROOT, "COLISA_template_interne.xlsx")
+TEMPLATE_FILE = os.path.join(PROJECT_ROOT, "Mapping", "COLISA_template_interne.xlsx")
 EXTERNAL_DIR = os.path.join(PROJECT_ROOT, "external")
 APP_ENTRY = os.path.join(SPEC_DIR, "ui_pyside6_poc.py")
 
