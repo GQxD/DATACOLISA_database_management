@@ -32,7 +32,7 @@ Le logiciel fonctionne pour un seul format de base de données:
 - Onglet source attendu: `Travail4avril2012`.
 - Cible attendue: `Mapping/COLISA_template_interne.xlsx`.
 - Onglet cible attendu: `Feuil1`.
-- Mapping fixe: positions/en-têtes métier définies dans le code (`app/datacolisa_importer.py`) et le contexte (`context master/master_context.md`).
+- Mapping fixe: positions/en-têtes métier définies dans le code (`app/datacolisa_importer.py`) 
 
 Si la structure source change (colonnes, onglet, position), le logiciel doit être adapté dans le mapping.
 
