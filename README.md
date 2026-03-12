@@ -17,6 +17,9 @@ pip install -r requirements.txt
 - Main interface (recommended): `python app/ui_pyside6_poc.py`
 - Import script / CLI mode (advanced): `python app/datacolisa_importer.py --help`
 
+## Preview
+![DATACOLISA UI](assets/images/Ui_preview.png)
+
 ## What the Software Does
 - Loads a source `.xls` Excel file.
 - Filters rows based on a reference range (`REF`).
