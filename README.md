@@ -3,13 +3,36 @@
 ## Purpose
 DATACOLISA is a business import tool used to transfer data from a source Excel file into a target template, with user validation before writing.
 
-## Requirements / Installation
+## Requirements
 - Recommended Python version: `3.12` (`3.11+` usually works, but `3.12` is the project baseline).
-- Install dependencies:
 
-```powershell
+## Installation
+
+### Create virtual environment
+```bash
 python -m venv .venv
+```
+
+### Activate environment
+
+**Windows PowerShell:**
+```powershell
 .\.venv\Scripts\Activate.ps1
+```
+
+**Windows CMD:**
+```cmd
+.\.venv\Scripts\activate.bat
+```
+
+**Git Bash (Windows) / Linux / Mac:**
+```bash
+source .venv/Scripts/activate  # Windows Git Bash
+source .venv/bin/activate      # Linux/Mac
+```
+
+### Install dependencies
+```bash
 pip install -r requirements.txt
 ```
 
@@ -19,6 +42,18 @@ pip install -r requirements.txt
 
 ## Preview
 ![DATACOLISA UI](assets/images/Ui_preview.png)
+
+## Project Layout
+- `app/`: application source code
+  - `datacolisa_importer.py`: CLI import script with business logic
+  - `ui_pyside6_poc.py`: PySide6 graphical user interface
+  - `assets/`: application icons and resources
+- `Mapping/`: Excel template files
+  - `COLISA_template_interne.xlsx`: target import template
+- `assets/`: project-wide resources
+  - `images/`: UI screenshots and documentation images
+- `requirements.txt`: Python dependencies
+- `LICENSE`: GNU GPL v3.0 license
 
 ## What the Software Does
 - Loads a source `.xls` Excel file.
