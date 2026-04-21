@@ -140,6 +140,10 @@ scripts\windows\build_portable.ps1 -EntryPoint le_visage.py -ExeName DATACOLISA
 
 This repository benefited from AI-assisted support for syntax optimization and documentation.
 
+## Authors
+
+- Anatole Aubin & Quentin Godeaux (2026)
+
 ## License
 
 This project is licensed under the GNU General Public License v3.0 (GPL-3.0). See LICENSE.
