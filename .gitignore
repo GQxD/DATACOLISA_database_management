@@ -1,0 +1,32 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Build artifacts
+build/
+dist/
+*.spec.tmp
+
+# Logs and runtime data
+*.log
+_tmp_format_colisa_test.xlsx
+imports/
+exports/
+runtime/
+settings/
+data/
+
+# IDE / local tooling
+.vscode/
+.idea/
+.claude/
+
+# OS files
+Thumbs.db
+.DS_Store
