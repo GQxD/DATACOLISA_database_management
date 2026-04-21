@@ -4,7 +4,7 @@ DATACOLISA is a Python desktop application for importing, validating, and export
 
 ## Preview
 
-Captures disponibles dans `docs/previews/` :
+Available screenshots in `docs/previews/` :
 
 ![Main window](docs/previews/main-window.png)
 
