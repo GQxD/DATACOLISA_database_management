@@ -2,23 +2,23 @@
 
 from infrastructure.embedded_assets import get_arrow_path as _get_arrow_path_embedded
 
-# ─── Palette jour ───────────────────────────────────────────────────────────
+# ─── Palette jour ────────────────────────────────────────────────────────────
 COLORS = {
-    "primary":          "#1a6b8a",   # bleu pétrole — en-têtes, boutons principaux
+    "primary":          "#1a6b8a",
     "primary_hover":    "#135270",
     "primary_light":    "#d6edf5",
 
-    "secondary":        "#3a7d6e",   # vert forêt — bouton Collec-Science
+    "secondary":        "#3a7d6e",
     "secondary_hover":  "#2d6358",
     "secondary_light":  "#d4ede9",
 
-    "accent":           "#7b4f9e",   # violet — bouton COLISA logiciel
+    "accent":           "#7b4f9e",
     "accent_hover":     "#5f3a7a",
 
-    "pipeline":         "#c0550a",   # orange brûlé — Export complet
+    "pipeline":         "#c0550a",
     "pipeline_hover":   "#963f06",
 
-    "background":       "#f0f5f7",   # gris bleuté très clair
+    "background":       "#f0f5f7",
     "surface":          "#ffffff",
     "border":           "#b0c4cc",
     "border_dark":      "#4a6470",
@@ -39,41 +39,59 @@ COLORS = {
     "import_btn_hover": "#135270",
 }
 
-# ─── Palette nuit ────────────────────────────────────────────────────────────
+# ─── Palette nuit (mode actif) ───────────────────────────────────────────────
 COLORS_DARK = {
-    "primary":          "#4a9fc0",
-    "primary_hover":    "#357fa0",
-    "primary_light":    "#0d2d3d",
+    # Bleu acier principal — boutons, titres, focus
+    "primary":          "#3ab8e8",
+    "primary_hover":    "#2298cc",
+    "primary_light":    "#0c2535",
+    "primary_grad_top": "#48c8f8",
+    "primary_grad_bot": "#2298cc",
 
-    "secondary":        "#3cb890",
-    "secondary_hover":  "#2a9070",
-    "secondary_light":  "#0a2820",
+    # Vert émeraude — Collec-Science
+    "secondary":        "#2ecba8",
+    "secondary_hover":  "#1caa88",
+    "secondary_light":  "#0a2520",
+    "secondary_grad_top": "#38dbb8",
+    "secondary_grad_bot": "#1caa88",
 
-    "accent":           "#a07ac8",
-    "accent_hover":     "#7d5aaa",
+    # Violet doux — COLISA logiciel
+    "accent":           "#b888f0",
+    "accent_hover":     "#9060d0",
+    "accent_grad_top":  "#c898f8",
+    "accent_grad_bot":  "#9060d0",
 
-    "pipeline":         "#e0792a",
-    "pipeline_hover":   "#c05a10",
+    # Orange chaud — Export complet
+    "pipeline":         "#f0922e",
+    "pipeline_hover":   "#d07010",
+    "pipeline_grad_top": "#faa840",
+    "pipeline_grad_bot": "#d07010",
 
-    "background":       "#0c1a20",
-    "surface":          "#162530",
-    "border":           "#2a4050",
-    "border_dark":      "#3a5565",
-    "text":             "#e8f4f8",
-    "text_secondary":   "#8ab0be",
+    # Surfaces
+    "background":       "#0d1b2a",
+    "surface":          "#162636",
+    "surface_alt":      "#1c3044",
+    "border":           "#253d52",
+    "border_dark":      "#1a3040",
 
-    "success":          "#3dcb8a",
-    "warning":          "#e09a30",
-    "error":            "#e06060",
-    "info":             "#4a9fc0",
+    # Texte
+    "text":             "#ddeef8",
+    "text_secondary":   "#7aaabb",
 
-    "table_header":     "#1e3a4a",
-    "table_row_alt":    "#162530",
-    "table_hover":      "#1e3a4a",
-    "table_selected":   "#254555",
+    # Etats
+    "success":          "#2ecba8",
+    "warning":          "#f0a030",
+    "error":            "#e86060",
+    "info":             "#3ab8e8",
 
-    "import_btn":       "#4a9fc0",
-    "import_btn_hover": "#357fa0",
+    # Tableau
+    "table_header":     "#182e42",
+    "table_row_alt":    "#142030",
+    "table_hover":      "#1e3a54",
+    "table_selected":   "#1e4a74",
+
+    "import_btn":       "#3ab8e8",
+    "import_btn_hover": "#2298cc",
 }
 
 
@@ -86,7 +104,9 @@ def get_stylesheet(dark_mode: bool = False) -> str:
     arrow_path = _get_arrow_path(dark_mode)
 
     return f"""
-    /* ===== GLOBAL ===== */
+    /* ══════════════════════════════════════════════════════════════
+       GLOBAL
+    ══════════════════════════════════════════════════════════════ */
     QMainWindow {{
         background-color: {c['background']};
     }}
@@ -94,50 +114,83 @@ def get_stylesheet(dark_mode: bool = False) -> str:
     QWidget {{
         color: {c['text']};
         font-family: 'Segoe UI', Arial, sans-serif;
-        font-size: 9pt;
+        font-size: 10pt;
     }}
 
-    /* ===== GROUP BOX ===== */
+    /* ══════════════════════════════════════════════════════════════
+       BANDEAU APPLICATION (contextCard + appTitle)
+    ══════════════════════════════════════════════════════════════ */
+    QFrame#contextCard {{
+        background-color: {c['surface']};
+        border: 1px solid {c['border']};
+        border-left: 4px solid {c['primary']};
+        border-radius: 10px;
+    }}
+
+    QLabel#appTitle {{
+        font-size: 15pt;
+        font-weight: 800;
+        color: {c['primary']};
+        letter-spacing: 1px;
+        padding: 4px 10px;
+    }}
+
+    QLabel#appVersion {{
+        font-size: 8pt;
+        color: {c['text_secondary']};
+        padding: 2px 6px;
+    }}
+
+    /* ══════════════════════════════════════════════════════════════
+       GROUP BOX
+    ══════════════════════════════════════════════════════════════ */
     QGroupBox {{
         background-color: {c['surface']};
         border: 1px solid {c['border']};
-        border-radius: 10px;
-        margin-top: 12px;
-        padding: 12px 10px 10px 10px;
-        font-weight: 600;
-        font-size: 9pt;
+        border-radius: 12px;
+        margin-top: 14px;
+        padding: 10px 10px 10px 10px;
+        font-weight: 700;
+        font-size: 10pt;
     }}
 
     QGroupBox::title {{
         subcontrol-origin: margin;
         subcontrol-position: top left;
-        padding: 3px 12px;
-        background-color: {c['primary']};
+        padding: 3px 14px;
+        background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+            stop:0 {c['primary']}, stop:1 {c['primary_hover']});
         color: white;
-        border-radius: 6px;
-        left: 10px;
-        font-size: 9pt;
+        border-radius: 7px;
+        left: 12px;
+        font-size: 10pt;
         font-weight: 700;
+        letter-spacing: 0.3px;
     }}
 
-    /* ===== BOUTONS PRINCIPAUX ===== */
+    /* ══════════════════════════════════════════════════════════════
+       BOUTONS — BASE
+    ══════════════════════════════════════════════════════════════ */
     QPushButton {{
-        background-color: {c['primary']};
+        background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+            stop:0 {c['primary_grad_top']}, stop:1 {c['primary_grad_bot']});
         color: white;
         border: none;
         border-radius: 8px;
-        padding: 6px 14px;
-        font-weight: 600;
-        font-size: 9pt;
+        padding: 6px 16px;
+        font-weight: 700;
+        font-size: 10pt;
     }}
 
     QPushButton:hover {{
-        background-color: {c['primary_hover']};
+        background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+            stop:0 {c['primary']}, stop:1 {c['primary_hover']});
     }}
 
     QPushButton:pressed {{
         background-color: {c['primary_hover']};
-        padding: 8px 16px 6px 16px;
+        padding-top: 8px;
+        padding-bottom: 4px;
     }}
 
     QPushButton:disabled {{
@@ -145,70 +198,81 @@ def get_stylesheet(dark_mode: bool = False) -> str:
         color: {c['text_secondary']};
     }}
 
-    /* Bouton Import — bleu pétrole foncé */
+    /* ══ Lancer import — bleu acier ══ */
     QPushButton#btn_import {{
-        background-color: {c['import_btn']};
-        font-size: 10pt;
-        font-weight: 700;
-        padding: 8px 18px;
-        border-radius: 9px;
+        background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+            stop:0 {c['primary_grad_top']}, stop:1 {c['primary_grad_bot']});
+        font-size: 11pt;
+        font-weight: 800;
+        padding: 9px 22px;
+        border-radius: 10px;
+        border-bottom: 3px solid {c['primary_hover']};
     }}
     QPushButton#btn_import:hover {{
-        background-color: {c['import_btn_hover']};
+        background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+            stop:0 {c['primary']}, stop:1 {c['primary_hover']});
     }}
 
-    /* Bouton Collec-Science — vert */
+    /* ══ Collec-Science — vert émeraude ══ */
     QPushButton#btn_collec {{
-        background-color: {c['secondary']};
-        font-size: 10pt;
-        font-weight: 700;
-        padding: 8px 18px;
-        border-radius: 9px;
+        background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+            stop:0 {c['secondary_grad_top']}, stop:1 {c['secondary_grad_bot']});
+        font-size: 11pt;
+        font-weight: 800;
+        padding: 9px 22px;
+        border-radius: 10px;
+        border-bottom: 3px solid {c['secondary_hover']};
     }}
     QPushButton#btn_collec:hover {{
-        background-color: {c['secondary_hover']};
+        background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+            stop:0 {c['secondary']}, stop:1 {c['secondary_hover']});
     }}
 
-    /* Bouton COLISA logiciel — violet */
+    /* ══ COLISA logiciel — violet ══ */
     QPushButton#btn_colisa_logiciel {{
-        background-color: {c['accent']};
-        font-size: 10pt;
-        font-weight: 700;
-        padding: 8px 18px;
-        border-radius: 9px;
+        background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+            stop:0 {c['accent_grad_top']}, stop:1 {c['accent_grad_bot']});
+        font-size: 11pt;
+        font-weight: 800;
+        padding: 9px 22px;
+        border-radius: 10px;
+        border-bottom: 3px solid {c['accent_hover']};
     }}
     QPushButton#btn_colisa_logiciel:hover {{
-        background-color: {c['accent_hover']};
+        background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+            stop:0 {c['accent']}, stop:1 {c['accent_hover']});
     }}
 
-    /* Bouton Export complet — orange */
+    /* ══ Export complet — orange ══ */
     QPushButton#btn_pipeline {{
-        background-color: {c['pipeline']};
-        font-size: 10pt;
-        font-weight: 700;
-        padding: 8px 18px;
-        border-radius: 9px;
+        background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+            stop:0 {c['pipeline_grad_top']}, stop:1 {c['pipeline_grad_bot']});
+        font-size: 11pt;
+        font-weight: 800;
+        padding: 9px 22px;
+        border-radius: 10px;
+        border-bottom: 3px solid {c['pipeline_hover']};
     }}
     QPushButton#btn_pipeline:hover {{
-        background-color: {c['pipeline_hover']};
+        background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+            stop:0 {c['pipeline']}, stop:1 {c['pipeline_hover']});
     }}
 
-    /* ===== LINE EDIT ===== */
+    /* ══════════════════════════════════════════════════════════════
+       LINE EDIT
+    ══════════════════════════════════════════════════════════════ */
     QLineEdit {{
-        background-color: {c['surface']};
+        background-color: {c['surface_alt']};
         border: 1px solid {c['border']};
-        border-radius: 6px;
-        padding: 4px 7px;
-        font-size: 9pt;
-    }}
-
-    QTableWidget QLineEdit {{
-        padding: 2px 4px;
-        border: 1px solid {c['border']};
+        border-radius: 7px;
+        padding: 5px 8px;
+        font-size: 10pt;
+        color: {c['text']};
     }}
 
     QLineEdit:focus {{
         border: 2px solid {c['primary']};
+        background-color: {c['surface']};
     }}
 
     QLineEdit:disabled {{
@@ -216,18 +280,32 @@ def get_stylesheet(dark_mode: bool = False) -> str:
         color: {c['text_secondary']};
     }}
 
-    /* ===== COMBO BOX ===== */
-    QComboBox {{
-        background-color: {c['surface']};
-        border: 1px solid {c['border']};
-        border-radius: 6px;
-        padding: 4px 7px;
-        font-size: 9pt;
-    }}
-
-    QTableWidget QComboBox {{
+    QTableWidget QLineEdit {{
         padding: 2px 4px;
         border: 1px solid {c['border']};
+    }}
+
+    /* ══════════════════════════════════════════════════════════════
+       COMBO BOX
+    ══════════════════════════════════════════════════════════════ */
+    QComboBox {{
+        background-color: {c['surface_alt']};
+        border: 1px solid {c['border']};
+        border-radius: 7px;
+        min-height: 32px;
+        padding: 0px 30px 0px 8px;
+        font-size: 10pt;
+        color: {c['text']};
+    }}
+
+    QComboBox QLineEdit {{
+        background-color: transparent;
+        border: none;
+        min-height: 28px;
+        padding: 0px;
+        color: {c['text']};
+        selection-background-color: {c['primary']};
+        selection-color: white;
     }}
 
     QComboBox:hover {{
@@ -240,8 +318,10 @@ def get_stylesheet(dark_mode: bool = False) -> str:
 
     QComboBox::drop-down {{
         border-left: 1px solid {c['border']};
-        width: 28px;
-        background-color: {c['surface']};
+        width: 26px;
+        background-color: {c['surface_alt']};
+        border-top-right-radius: 7px;
+        border-bottom-right-radius: 7px;
     }}
 
     QComboBox::down-arrow {{
@@ -253,30 +333,43 @@ def get_stylesheet(dark_mode: bool = False) -> str:
     QComboBox QAbstractItemView {{
         background-color: {c['surface']};
         border: 1px solid {c['border']};
-        border-radius: 6px;
+        border-radius: 7px;
         selection-background-color: {c['primary']};
         selection-color: white;
         color: {c['text']};
         padding: 4px;
+        outline: none;
     }}
 
     QComboBox QAbstractItemView::item {{
-        padding: 6px;
+        padding: 7px 10px;
         color: {c['text']};
+        border-radius: 4px;
     }}
 
-    /* ===== CHECK BOX ===== */
+    QComboBox QAbstractItemView::item:hover {{
+        background-color: {c['table_hover']};
+    }}
+
+    QTableWidget QComboBox {{
+        padding: 2px 4px;
+        border: 1px solid {c['border']};
+    }}
+
+    /* ══════════════════════════════════════════════════════════════
+       CHECK BOX
+    ══════════════════════════════════════════════════════════════ */
     QCheckBox {{
         spacing: 8px;
-        font-size: 9pt;
+        font-size: 10pt;
     }}
 
     QCheckBox::indicator {{
-        width: 16px;
-        height: 16px;
+        width: 17px;
+        height: 17px;
         border: 2px solid {c['border']};
-        border-radius: 4px;
-        background-color: {c['surface']};
+        border-radius: 5px;
+        background-color: {c['surface_alt']};
     }}
 
     QCheckBox::indicator:hover {{
@@ -284,19 +377,22 @@ def get_stylesheet(dark_mode: bool = False) -> str:
     }}
 
     QCheckBox::indicator:checked {{
-        background-color: {c['primary']};
+        background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+            stop:0 {c['primary_grad_top']}, stop:1 {c['primary_grad_bot']});
         border: 2px solid {c['primary']};
     }}
 
-    /* ===== LABEL ===== */
+    /* ══════════════════════════════════════════════════════════════
+       LABELS
+    ══════════════════════════════════════════════════════════════ */
     QLabel {{
         color: {c['text']};
-        font-size: 9pt;
-        padding: 2px;
+        font-size: 10pt;
+        padding: 1px;
     }}
 
     QLabel[class="header"] {{
-        font-size: 12pt;
+        font-size: 13pt;
         font-weight: bold;
         color: {c['primary']};
         padding: 4px 0px;
@@ -305,7 +401,6 @@ def get_stylesheet(dark_mode: bool = False) -> str:
     QLabel#introHelp, QLabel#panelHelp {{
         color: {c['text_secondary']};
         font-size: 9pt;
-        padding: 0px;
     }}
 
     QLabel#workflowHelp {{
@@ -324,10 +419,15 @@ def get_stylesheet(dark_mode: bool = False) -> str:
         padding: 8px 10px;
     }}
 
-    QFrame#contextCard {{
-        background-color: {c['surface']};
-        border: 2px solid {c['primary']};
-        border-radius: 12px;
+    /* Status bar au bas ══ */
+    QLabel#statusLabel {{
+        font-size: 10pt;
+        font-weight: 700;
+        color: {c['primary']};
+        background-color: {c['surface_alt']};
+        border: 1px solid {c['border']};
+        border-radius: 8px;
+        padding: 6px 14px;
     }}
 
     QLabel[class="secondary"] {{
@@ -335,19 +435,22 @@ def get_stylesheet(dark_mode: bool = False) -> str:
         font-size: 9pt;
     }}
 
-    /* ===== TABLE VIEW ===== */
+    /* ══════════════════════════════════════════════════════════════
+       TABLE VIEW
+    ══════════════════════════════════════════════════════════════ */
     QTableView {{
         background-color: {c['surface']};
         alternate-background-color: {c['table_row_alt']};
         border: 1px solid {c['border']};
-        border-radius: 8px;
-        gridline-color: {c['border']};
+        border-radius: 10px;
+        gridline-color: {c['border_dark']};
         selection-background-color: {c['table_selected']};
         selection-color: {c['text']};
+        font-size: 9.5pt;
     }}
 
     QTableView::item {{
-        padding: 3px 6px;
+        padding: 4px 7px;
         border: none;
     }}
 
@@ -360,56 +463,74 @@ def get_stylesheet(dark_mode: bool = False) -> str:
     }}
 
     QHeaderView::section {{
-        background-color: {c['table_header']};
+        background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+            stop:0 {c['surface_alt']}, stop:1 {c['table_header']});
         color: {c['text']};
-        padding: 6px;
+        padding: 7px 8px;
         border: none;
-        border-right: 1px solid {c['border']};
+        border-right: 1px solid {c['border_dark']};
         border-bottom: 2px solid {c['primary']};
         font-weight: 700;
         font-size: 9pt;
+        letter-spacing: 0.2px;
     }}
 
     QHeaderView::section:first {{
-        border-top-left-radius: 6px;
+        border-top-left-radius: 8px;
     }}
 
     QHeaderView::section:last {{
-        border-top-right-radius: 6px;
+        border-top-right-radius: 8px;
         border-right: none;
     }}
 
-    /* ===== MENU BAR ===== */
-    QMenuBar {{
-        background-color: {c['primary']};
-        color: white;
-        padding: 3px;
+    QHeaderView::section:vertical {{
+        background-color: {c['table_header']};
+        color: {c['text_secondary']};
+        padding: 3px 6px;
+        border: none;
+        border-bottom: 1px solid {c['border_dark']};
         font-weight: 600;
+        font-size: 9pt;
+    }}
+
+    /* ══════════════════════════════════════════════════════════════
+       MENU BAR
+    ══════════════════════════════════════════════════════════════ */
+    QMenuBar {{
+        background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+            stop:0 {c['surface_alt']}, stop:1 {c['surface']});
+        color: {c['text']};
+        padding: 4px;
+        border-bottom: 2px solid {c['primary']};
+        font-weight: 600;
+        font-size: 10pt;
     }}
 
     QMenuBar::item {{
         background-color: transparent;
-        padding: 6px 14px;
-        border-radius: 4px;
-        color: white;
+        padding: 6px 16px;
+        border-radius: 6px;
+        color: {c['text']};
     }}
 
     QMenuBar::item:selected {{
-        background-color: {c['primary_hover']};
+        background-color: {c['primary']};
         color: white;
     }}
 
     QMenu {{
         background-color: {c['surface']};
         border: 1px solid {c['border']};
-        border-radius: 6px;
-        padding: 4px;
+        border-radius: 8px;
+        padding: 6px;
     }}
 
     QMenu::item {{
-        padding: 8px 24px 8px 12px;
-        border-radius: 4px;
+        padding: 8px 28px 8px 14px;
+        border-radius: 5px;
         color: {c['text']};
+        font-size: 10pt;
     }}
 
     QMenu::item:selected {{
@@ -417,27 +538,26 @@ def get_stylesheet(dark_mode: bool = False) -> str:
         color: white;
     }}
 
-    /* ===== STATUS BAR ===== */
-    QStatusBar {{
-        background-color: {c['primary']};
-        color: white;
-        border-top: none;
-        padding: 4px;
-        font-weight: 600;
+    QMenu::separator {{
+        height: 1px;
+        background-color: {c['border']};
+        margin: 4px 8px;
     }}
 
-    /* ===== SCROLL BAR ===== */
+    /* ══════════════════════════════════════════════════════════════
+       SCROLL BARS
+    ══════════════════════════════════════════════════════════════ */
     QScrollBar:vertical {{
         background-color: {c['background']};
-        width: 10px;
-        border-radius: 5px;
+        width: 9px;
+        border-radius: 4px;
         margin: 0px;
     }}
 
     QScrollBar::handle:vertical {{
         background-color: {c['border']};
-        min-height: 30px;
-        border-radius: 5px;
+        min-height: 32px;
+        border-radius: 4px;
         margin: 2px;
     }}
 
@@ -452,15 +572,15 @@ def get_stylesheet(dark_mode: bool = False) -> str:
 
     QScrollBar:horizontal {{
         background-color: {c['background']};
-        height: 10px;
-        border-radius: 5px;
+        height: 9px;
+        border-radius: 4px;
         margin: 0px;
     }}
 
     QScrollBar::handle:horizontal {{
         background-color: {c['border']};
-        min-width: 30px;
-        border-radius: 5px;
+        min-width: 32px;
+        border-radius: 4px;
         margin: 2px;
     }}
 
@@ -473,27 +593,43 @@ def get_stylesheet(dark_mode: bool = False) -> str:
         width: 0px;
     }}
 
-    /* ===== MESSAGE BOX ===== */
+    /* ══════════════════════════════════════════════════════════════
+       TOOLTIP
+    ══════════════════════════════════════════════════════════════ */
+    QToolTip {{
+        background-color: {c['surface_alt']};
+        color: {c['text']};
+        border: 1px solid {c['primary']};
+        border-radius: 6px;
+        padding: 6px 10px;
+        font-size: 9.5pt;
+    }}
+
+    /* ══════════════════════════════════════════════════════════════
+       MESSAGE BOX / DIALOG
+    ══════════════════════════════════════════════════════════════ */
     QMessageBox {{
         background-color: {c['surface']};
     }}
 
     QMessageBox QPushButton {{
-        min-width: 80px;
+        min-width: 90px;
+        min-height: 30px;
     }}
 
-    /* ===== DIALOG ===== */
     QDialog {{
         background-color: {c['background']};
         color: {c['text']};
     }}
 
-    /* ===== TEXT EDIT ===== */
+    /* ══════════════════════════════════════════════════════════════
+       TEXT EDIT
+    ══════════════════════════════════════════════════════════════ */
     QTextEdit {{
         background-color: {c['surface']};
         color: {c['text']};
         border: 1px solid {c['border']};
-        border-radius: 6px;
+        border-radius: 8px;
         padding: 8px;
         selection-background-color: {c['primary']};
         selection-color: white;
@@ -503,23 +639,58 @@ def get_stylesheet(dark_mode: bool = False) -> str:
         border: 2px solid {c['primary']};
     }}
 
-    /* ===== TAB WIDGET ===== */
+    /* ══════════════════════════════════════════════════════════════
+       SPLITTER / FRAME SEPARATORS
+    ══════════════════════════════════════════════════════════════ */
+    QFrame[frameShape="4"],
+    QFrame[frameShape="5"] {{
+        color: {c['border']};
+    }}
+
+    QFrame#vSep {{
+        background-color: {c['border']};
+        min-width: 1px;
+        max-width: 1px;
+        margin: 4px 0;
+    }}
+
+    /* ══════════════════════════════════════════════════════════════
+       PROGRESS BAR
+    ══════════════════════════════════════════════════════════════ */
+    QProgressBar {{
+        background-color: {c['surface_alt']};
+        border: 1px solid {c['border']};
+        border-radius: 7px;
+        text-align: center;
+        color: {c['text']};
+        font-weight: 700;
+    }}
+
+    QProgressBar::chunk {{
+        background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+            stop:0 {c['primary']}, stop:1 {c['primary_hover']});
+        border-radius: 6px;
+    }}
+
+    /* ══════════════════════════════════════════════════════════════
+       TAB WIDGET
+    ══════════════════════════════════════════════════════════════ */
     QTabWidget::pane {{
         background-color: {c['surface']};
         border: 1px solid {c['border']};
-        border-radius: 6px;
+        border-radius: 8px;
         top: -1px;
     }}
 
     QTabBar::tab {{
         background-color: {c['background']};
-        color: {c['text']};
-        padding: 8px 18px;
+        color: {c['text_secondary']};
+        padding: 8px 20px;
         border: 1px solid {c['border']};
         border-bottom: none;
-        border-top-left-radius: 6px;
-        border-top-right-radius: 6px;
-        margin-right: 2px;
+        border-top-left-radius: 7px;
+        border-top-right-radius: 7px;
+        margin-right: 3px;
         font-weight: 600;
     }}
 
@@ -527,26 +698,24 @@ def get_stylesheet(dark_mode: bool = False) -> str:
         background-color: {c['surface']};
         color: {c['primary']};
         border-bottom: 2px solid {c['primary']};
-        font-weight: 700;
+        font-weight: 800;
     }}
 
     QTabBar::tab:hover:!selected {{
         background-color: {c['primary_light']};
-    }}
-
-    /* ===== PROGRESS BAR ===== */
-    QProgressBar {{
-        background-color: {c['background']};
-        border: 1px solid {c['border']};
-        border-radius: 6px;
-        text-align: center;
         color: {c['text']};
-        font-weight: 600;
     }}
 
-    QProgressBar::chunk {{
-        background-color: {c['primary']};
-        border-radius: 5px;
+    /* ══════════════════════════════════════════════════════════════
+       STATUS BAR
+    ══════════════════════════════════════════════════════════════ */
+    QStatusBar {{
+        background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+            stop:0 {c['surface_alt']}, stop:1 {c['surface']});
+        color: {c['text']};
+        border-top: 2px solid {c['primary']};
+        padding: 4px;
+        font-weight: 600;
     }}
     """
 

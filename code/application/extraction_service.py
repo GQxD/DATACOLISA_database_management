@@ -5,8 +5,9 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, List
 
+from config.mappings import SOURCE_POSITIONS
 from domain.models import SourceRow, ExtractionResult
-from domain.value_objects import RefCode
+from domain.value_objects import DateCapture, RefCode
 from domain.business_rules import TypePecheDeriver, PaysDeriver
 from infrastructure.excel_reader import ExcelReader
 from infrastructure.csv_repository import CSVRepository
@@ -126,9 +127,6 @@ class ExtractionService:
         Returns:
             List of SourceRow objects
         """
-        from config.mappings import SOURCE_POSITIONS
-        from domain.value_objects import DateCapture
-
         candidates = []
         for i, row in enumerate(rows, start=1):
             # Get REF from primary position
@@ -192,8 +190,6 @@ class ExtractionService:
     @staticmethod
     def _normalize_ref_code(value: Any) -> str:
         """Normalize refs like 'XY 0682' to 'XY682'."""
-        from domain.value_objects import RefCode
-
         txt = ExtractionService._normalize(value)
         if not txt:
             return ""

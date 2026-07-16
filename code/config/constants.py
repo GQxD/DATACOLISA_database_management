@@ -10,7 +10,7 @@ from typing import List
 
 # Default sheet names
 DEFAULT_SOURCE_SHEET: str = "Travail4avril2012"
-DEFAULT_TARGET_SHEET: str = "Feuil1 "  # Note: espace à la fin (nom réel dans les fichiers COLISA)
+DEFAULT_TARGET_SHEET: str = "Feuil1"  # Target data worksheet name in COLISA workbooks
 
 # Default values for import
 DEFAULT_ORGANISME: str = "INRAE"

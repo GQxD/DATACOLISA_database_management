@@ -66,6 +66,10 @@ class LoadRangeWorker(QThread):
 
             # Find candidate rows
             if self.source_mode == "custom":
+                self.source_mapping = core.enrich_custom_source_mapping(
+                    source_rows,
+                    self.source_mapping,
+                )
                 candidates = core.find_candidate_rows_from_mapping(
                     source_rows,
                     datemode,
@@ -159,6 +163,7 @@ class LoadRangeWorker(QThread):
                 "found_count": len(filtered),
                 "pending_count": sum(1 for row in rows if row["status"] == "a_reimporter"),
                 "missing_date_count": sum(1 for row in rows if not row.get("date_capture")),
+                "source_mapping": self.source_mapping,
             }
             logger.info(f"LoadRangeWorker: Completed, found {len(filtered)} rows, {len(missing_codes)} missing")
             self.finished.emit(result)

@@ -187,7 +187,7 @@ def fusionner_lignes_ec_ot(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
                     base[col] = val_new
                 elif val_base and val_base != "0" and val_new and val_new != "0":
                     try:
-                        base[col] = str(max(int(val_base), int(val_new)))
+                        base[col] = str(int(val_base) + int(val_new))
                     except ValueError:
                         pass  # Conserver val_base en cas de valeur non numerique
             # Pas de nouvelle ligne ajoutee : la ligne entrante est absorbee
@@ -260,11 +260,14 @@ class MainWindow(QMainWindow):
         # Cache des individus EC/OT deja presents dans le fichier de sortie
         # Structure : { num_individu -> {"row", "code_type_echantillon", "montees", "ecailles_brutes", "otolithes", "empreintes"} }
         self._individus_sortie: Dict[str, Dict[str, str]] = {}
+        # Map des colonnes du fichier de sortie (champ -> numero de colonne Excel)
+        self._col_map_sortie: Dict[str, int] = {}
         self.missing_codes: List[str] = []
         self._table_sync_guard = False
         self.dark_mode = True
         self._post_import_pipeline = False
         self._import_start_numero = 0
+        self._startup_source_dialog: QDialog | None = None
 
         self.source_path = Path()
         self.source_sheet = core.DEFAULT_SOURCE_SHEET
@@ -287,55 +290,77 @@ class MainWindow(QMainWindow):
         root = QWidget()
         self.setCentralWidget(root)
         lay = QVBoxLayout(root)
-        lay.setSpacing(8)
-        lay.setContentsMargins(10, 10, 10, 10)
+        lay.setSpacing(5)
+        lay.setContentsMargins(6, 6, 6, 6)
 
         lay.addWidget(self._build_context_strip())
         lay.addWidget(self._build_workspace_panel(), 1)
         lay.addWidget(self._build_bottom_panel())
 
         self._load_settings()
-        self._refresh_type_options()
         self._refresh_context_labels()
         self._apply_theme(True)
+
+        from PySide6.QtCore import QTimer
+        QTimer.singleShot(0, self._finalize_startup_initialization)
+        QTimer.singleShot(200, self._verifier_fichier_colisa_au_demarrage)
+
+    def _finalize_startup_initialization(self) -> None:
+        """Terminer l'initialisation après l'affichage de la fenêtre pour éviter le blocage UI."""
+        if getattr(self, "_startup_initialization_done", False):
+            return
+        self._startup_initialization_done = True
+
+        self._refresh_type_options()
+        self._refresh_context_labels()
         self.switch_theme.blockSignals(True)
         self.switch_theme.setChecked(True)
         self.switch_theme.blockSignals(False)
         self.switch_theme.setEnabled(False)
 
-        from PySide6.QtCore import QTimer
-        QTimer.singleShot(200, self._verifier_fichier_colisa_au_demarrage)
-
     def _verifier_fichier_colisa_au_demarrage(self) -> None:
-        """Au démarrage, affiche un dialog pour choisir/confirmer les fichiers ENTREE et SORTIE."""
+        """Au demarrage, propose simplement un choix de fichier source sans bloquer l'interface."""
         from PySide6.QtWidgets import (
             QDialog, QVBoxLayout, QHBoxLayout, QLabel,
-            QLineEdit, QPushButton, QDialogButtonBox, QFrame
+            QLineEdit, QPushButton, QDialogButtonBox
         )
-        from presentation.dialogs import ErrorDialog
+
+        if self.source_path.exists():
+            self._refresh_context_labels()
+            self._refresh_type_options()
+            return
+
+        if self._startup_source_dialog is not None and self._startup_source_dialog.isVisible():
+            return
 
         dlg = QDialog(self)
-        dlg.setWindowTitle("DATACOLISA - Fichiers de travail")
-        dlg.setMinimumWidth(580)
-        dlg.setModal(True)
+        dlg.setWindowTitle("DATACOLISA - Source de donnees")
+        dlg.setMinimumWidth(540)
+        dlg.setAttribute(Qt.WA_DeleteOnClose)
+        dlg.setWindowModality(Qt.NonModal)
+        self._startup_source_dialog = dlg
 
         lay = QVBoxLayout(dlg)
-        lay.setSpacing(14)
+        lay.setSpacing(12)
         lay.setContentsMargins(16, 16, 16, 16)
 
-        # ── ENTREE ──────────────────────────────────────────────────────────
-        lbl_entree = QLabel("ENTREE - Fichier source (PAC Final / Excel) :")
-        lbl_entree.setStyleSheet("font-weight: bold;")
-        lay.addWidget(lbl_entree)
+        lbl_titre = QLabel("Quel fichier source voulez-vous utiliser ?")
+        lbl_titre.setStyleSheet("font-weight: bold; font-size: 11pt;")
+        lay.addWidget(lbl_titre)
+
+        lbl_sub = QLabel("Fichier PAC Final ou autre source Excel contenant les donnees a importer :")
+        lbl_sub.setWordWrap(True)
+        lay.addWidget(lbl_sub)
 
         row_in = QHBoxLayout()
         ed_source = QLineEdit(str(self.source_path) if str(self.source_path).strip() else "")
+        ed_source.setPlaceholderText("Chemin du fichier source...")
         ed_source.setMinimumWidth(380)
         row_in.addWidget(ed_source)
 
-        btn_parcourir_in = QPushButton("Parcourir...")
+        btn_parcourir = QPushButton("Parcourir...")
 
-        def _parcourir_in():
+        def _parcourir():
             current_text = ed_source.text().strip()
             current = Path(current_text) if current_text else None
             start_dir = _default_source_start_dir(current, self.imports_dir)
@@ -346,104 +371,35 @@ class MainWindow(QMainWindow):
             if p:
                 ed_source.setText(p)
 
-        btn_parcourir_in.clicked.connect(_parcourir_in)
-        row_in.addWidget(btn_parcourir_in)
+        btn_parcourir.clicked.connect(_parcourir)
+        row_in.addWidget(btn_parcourir)
         lay.addLayout(row_in)
 
-        # séparateur
-        sep = QFrame()
-        sep.setFrameShape(QFrame.HLine)
-        sep.setFrameShadow(QFrame.Sunken)
-        lay.addWidget(sep)
-
-        # ── SORTIE ──────────────────────────────────────────────────────────
-        lbl_sortie = QLabel("SORTIE - Fichier COLISA en cours :")
-        lbl_sortie.setStyleSheet("font-weight: bold;")
-        lay.addWidget(lbl_sortie)
-
-        row_out = QHBoxLayout()
-        ed_path = QLineEdit(str(self.out_path))
-        ed_path.setMinimumWidth(380)
-        row_out.addWidget(ed_path)
-
-        btn_parcourir_out = QPushButton("Parcourir...")
-
-        def _parcourir_out():
-            current = Path(ed_path.text().strip())
-            start_dir = str(current.parent) if current.parent.exists() else str(self.imports_dir)
-            p, _ = QFileDialog.getOpenFileName(dlg, "Choisir un fichier COLISA existant", start_dir, "Excel (*.xlsx)")
-            if p:
-                ed_path.setText(p)
-
-        btn_parcourir_out.clicked.connect(_parcourir_out)
-        row_out.addWidget(btn_parcourir_out)
-        lay.addLayout(row_out)
-
-        btn_nouveau = QPushButton("Creer un nouveau fichier SORTIE vierge...")
-
-        # Conteneur pour transmettre le code de départ depuis la fonction imbriquée
-        _starting_code: list[str] = [""]
-
-        def _nouveau():
-            current = Path(ed_path.text().strip())
-            start = str(current.parent) if current.parent.exists() else str(self.imports_dir)
-            p, _ = QFileDialog.getSaveFileName(dlg, "Nouveau fichier COLISA", start + "/COLISA en cours.xlsx", "Excel (*.xlsx)")
-            if not p:
-                return
-            dest = Path(p)
-            if dest.suffix.lower() != ".xlsx":
-                dest = dest.with_suffix(".xlsx")
-            if dest.exists():
-                from presentation.dialogs import WarningDialog
-                WarningDialog.show(dlg, "Nouveau fichier", f"Ce fichier existe déjà :\n{dest}")
-                return
-            try:
-                base_path = self._ensure_internal_target_base()
-                dest.parent.mkdir(parents=True, exist_ok=True)
-                shutil.copy2(base_path, dest)
-                ed_path.setText(str(dest))
-                # Demander le code échantillon de départ
-                code, ok = QInputDialog.getText(
-                    dlg,
-                    "Code échantillon de départ",
-                    "Par quel code échantillon commencer ?\n(ex : T001, CA950...)",
-                    text=self.ed_start.text().strip(),
-                )
-                if ok and code.strip():
-                    _starting_code[0] = code.strip().upper()
-            except Exception as exc:
-                ErrorDialog.show(dlg, "Nouveau fichier", f"Impossible de créer :\n{exc}")
-
-        btn_nouveau.clicked.connect(_nouveau)
-        lay.addWidget(btn_nouveau)
+        lbl_colisa = QLabel(f"COLISA en cours : {self.out_path.name}")
+        lbl_colisa.setStyleSheet("color: gray; font-size: 9pt;")
+        lay.addWidget(lbl_colisa)
 
         btns = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
-        btns.accepted.connect(dlg.accept)
-        btns.rejected.connect(dlg.reject)
+
+        def _accept():
+            source_text = ed_source.text().strip()
+            new_source = Path(source_text) if source_text else Path()
+            if new_source != self.source_path:
+                self.source_path = new_source
+            self._refresh_context_labels()
+            self._refresh_type_options()
+            self._save_settings()
+            dlg.close()
+
+        def _reject():
+            self._refresh_context_labels()
+            dlg.close()
+
+        btns.accepted.connect(_accept)
+        btns.rejected.connect(_reject)
+        dlg.finished.connect(lambda *_: setattr(self, "_startup_source_dialog", None))
         lay.addWidget(btns)
-
-        if dlg.exec() != QDialog.Accepted:
-            return
-
-        # Appliquer ENTREE
-        source_text = ed_source.text().strip()
-        new_source = Path(source_text) if source_text else Path()
-        if new_source != self.source_path:
-            self.source_path = new_source
-
-        # Appliquer SORTIE
-        chosen = Path(ed_path.text().strip())
-        if not chosen.suffix:
-            chosen = chosen.with_suffix(".xlsx")
-        self.out_path = chosen
-
-        # Appliquer le code échantillon de départ si renseigné
-        if _starting_code[0]:
-            self.ed_start.setText(_starting_code[0])
-
-        self._refresh_context_labels()
-        self._refresh_type_options()
-        self._save_settings()
+        dlg.show()
 
     def _build_menu(self) -> None:
         mb = self.menuBar()
@@ -480,29 +436,40 @@ class MainWindow(QMainWindow):
         w = QWidget()
         h = QHBoxLayout(w)
         h.setContentsMargins(0, 0, 0, 0)
-        h.setSpacing(8)
+        h.setSpacing(10)
 
-        self.lbl_source = QLabel()
+        # Titre application
+        lbl_app = QLabel("DATACOLISA")
+        lbl_app.setObjectName("appTitle")
+
+        lbl_ver = QLabel(f"v{APP_VERSION}")
+        lbl_ver.setObjectName("appVersion")
+
+        # Carte d'information contextuelle
         self.lbl_target = QLabel()
-        self.lbl_paths = QLabel()
-        for lbl in (self.lbl_source, self.lbl_target, self.lbl_paths):
-            lbl.setWordWrap(True)
+        self.lbl_target.setWordWrap(True)
 
         info = QFrame()
         info.setObjectName("contextCard")
-        info_v = QVBoxLayout(info)
-        info_v.setContentsMargins(10, 8, 10, 8)
-        info_v.setSpacing(2)
-        info_v.addWidget(self.lbl_source)
-        info_v.addWidget(self.lbl_target)
-        info_v.addWidget(self.lbl_paths)
+        info_h = QHBoxLayout(info)
+        info_h.setContentsMargins(10, 4, 10, 4)
+        info_h.setSpacing(10)
+        info_h.addWidget(lbl_app)
+        info_h.addWidget(lbl_ver)
+
+        sep_v = QFrame()
+        sep_v.setFrameShape(QFrame.VLine)
+        sep_v.setObjectName("vSep")
+        info_h.addWidget(sep_v)
+
+        info_h.addWidget(self.lbl_target, 1)
 
         self.switch_theme = QCheckBox("Mode nuit")
         self.switch_theme.setObjectName("themeSwitch")
         self.switch_theme.toggled.connect(self._on_theme_toggled)
         self.switch_theme.hide()
 
-        h.addWidget(info, 3)
+        h.addWidget(info, 1)
         return w
 
     def _build_workspace_panel(self) -> QWidget:
@@ -518,7 +485,7 @@ class MainWindow(QMainWindow):
         h.setSpacing(12)
 
         left = QWidget()
-        left.setMaximumWidth(420)
+        left.setMaximumWidth(430)
         left_lay = QVBoxLayout(left)
         left_lay.setContentsMargins(0, 0, 0, 0)
         left_lay.setSpacing(8)
@@ -535,8 +502,9 @@ class MainWindow(QMainWindow):
         box = QGroupBox("Parametres d'import")
         box.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         g = QGridLayout(box)
-        g.setHorizontalSpacing(10)
-        g.setVerticalSpacing(6)
+        g.setContentsMargins(14, 12, 10, 10)
+        g.setHorizontalSpacing(8)
+        g.setVerticalSpacing(5)
         g.setColumnStretch(0, 0)
         g.setColumnStretch(1, 1)
         g.setColumnStretch(2, 0)
@@ -556,49 +524,50 @@ class MainWindow(QMainWindow):
         self.ed_num_correspondant = QLineEdit("4")
 
         # Largeurs fixes pour garantir visibilité complète
-        self.ed_start.setMinimumWidth(124)
-        self.ed_end.setMinimumWidth(124)
-        self.cb_duplicate.setMinimumWidth(124)
-        self.ed_org.setMinimumWidth(124)
-        self.ed_country.setMinimumWidth(124)
-        self.ed_code_unite.setMinimumWidth(124)
-        self.ed_site_atelier.setMinimumWidth(124)
-        self.ed_num_correspondant.setMinimumWidth(124)
+        for field in [
+            self.ed_start, self.ed_end, self.cb_duplicate, self.ed_org,
+            self.ed_country, self.ed_code_unite, self.ed_site_atelier,
+            self.ed_num_correspondant,
+        ]:
+            field.setMinimumWidth(118)
+            field.setMaximumWidth(150)
 
         btn_add_type = QPushButton("Ajouter type")
-        btn_add_type.setMinimumWidth(140)
+        btn_add_type.setMinimumWidth(132)
         btn_add_type.setFixedHeight(30)
         btn_add_type.clicked.connect(self.add_new_type)
 
-        btn_load = QPushButton("📂 Charger plage")
-        btn_load.setMinimumWidth(150)
+        btn_load = QPushButton("Charger plage")
+        btn_load.setMinimumWidth(145)
         btn_load.setFixedHeight(32)
         btn_load.clicked.connect(self.load_range)
 
 
         labels = [
-            ("Numero individu debut", self.ed_start),
-            ("Numero individu fin", self.ed_end),
+            ("Individu debut", self.ed_start),
+            ("Individu fin", self.ed_end),
             ("Doublons", self.cb_duplicate),
             ("Organisme", self.ed_org),
             ("Pays", self.ed_country),
             ("Code unite", self.ed_code_unite),
             ("Site atelier", self.ed_site_atelier),
-            ("Numero correspondant", self.ed_num_correspondant),
+            ("Correspondant", self.ed_num_correspondant),
         ]
 
         row = 0
         for lbl, w in labels:
-            g.addWidget(QLabel(lbl), row, 0, alignment=Qt.AlignLeft)
+            label = QLabel(lbl)
+            label.setMinimumWidth(105)
+            g.addWidget(label, row, 0, alignment=Qt.AlignLeft)
             g.addWidget(w, row, 1)  # Pas d'alignment pour permettre expansion
             row += 1
 
-        helper = QLabel("Change surtout la plage.")
+        helper = QLabel("Plage source")
         helper.setWordWrap(True)
         helper.setObjectName("panelHelp")
 
         g.addWidget(helper, 0, 2, 2, 2)
-        g.addWidget(btn_add_type, 2, 2, alignment=Qt.AlignLeft)
+        g.addWidget(btn_add_type, 2, 2, 1, 2, alignment=Qt.AlignLeft)
 
         g.addWidget(btn_load, row, 0, 1, 2, alignment=Qt.AlignLeft)
         return box
@@ -620,10 +589,14 @@ class MainWindow(QMainWindow):
         box = QGroupBox("Resume")
         box.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         h = QHBoxLayout(box)
+        h.setContentsMargins(14, 12, 14, 10)
+        h.setSpacing(10)
         self.lbl_count = QLabel("Lignes: 0")
-        self.lbl_pending = QLabel("A reimporter: 0")
-        self.lbl_missing = QLabel("Codes manquants: 0")
-        btn_missing = QPushButton("Voir codes manquants")
+        self.lbl_pending = QLabel("Reimport: 0")
+        self.lbl_missing = QLabel("Manquants: 0")
+        btn_missing = QPushButton("Voir")
+        btn_missing.setFixedWidth(70)
+        btn_missing.setFixedHeight(30)
         btn_missing.clicked.connect(self.show_missing_codes)
         h.addWidget(self.lbl_count)
         h.addWidget(self.lbl_pending)
@@ -632,16 +605,13 @@ class MainWindow(QMainWindow):
         return box
 
     def _build_bulk_panel(self) -> QWidget:
-        container = QWidget()
-        outer = QVBoxLayout(container)
-        outer.setContentsMargins(0, 0, 0, 0)
-
         box = QGroupBox("Actions multi-lignes (sur cases Selection)")
-        box.setSizePolicy(QSizePolicy.MinimumExpanding, QSizePolicy.Fixed)
-        box.setMinimumWidth(1500)
+        box.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        box.setMinimumHeight(138)
+        box.setMaximumHeight(150)
         box_layout = QVBoxLayout(box)
-        box_layout.setContentsMargins(14, 12, 14, 12)
-        box_layout.setSpacing(10)
+        box_layout.setContentsMargins(14, 10, 14, 8)
+        box_layout.setSpacing(6)
 
         self.bulk_type = QComboBox()
         self.bulk_type.setEditable(True)
@@ -654,62 +624,63 @@ class MainWindow(QMainWindow):
         self.bulk_empreintes = QComboBox(); self.bulk_empreintes.addItems(NUMERIC_OPTIONS)
         self.bulk_otolithes = QComboBox(); self.bulk_otolithes.addItems(NUMERIC_OPTIONS)
         self.bulk_observation = QComboBox(); self.bulk_observation.addItems(OBSERVATION_OPTIONS)
+        self.bulk_type.setMinimumWidth(280)
+        self.bulk_type.setSizeAdjustPolicy(QComboBox.AdjustToContents)
         for cb in [self.bulk_type, self.bulk_categorie, self.bulk_type_peche,
+                   self.bulk_autre, self.bulk_ecailles, self.bulk_montees, self.bulk_empreintes, self.bulk_otolithes, self.bulk_observation]:
+            cb.setFixedHeight(34)
+            if cb.isEditable() and cb.lineEdit():
+                cb.lineEdit().setMinimumHeight(28)
+        for cb in [self.bulk_categorie, self.bulk_type_peche,
                    self.bulk_autre, self.bulk_ecailles, self.bulk_montees, self.bulk_empreintes, self.bulk_otolithes, self.bulk_observation]:
             cb.setMinimumWidth(135)
 
         fields_grid = QGridLayout()
-        fields_grid.setHorizontalSpacing(18)
-        fields_grid.setVerticalSpacing(12)
+        fields_grid.setHorizontalSpacing(14)
+        fields_grid.setVerticalSpacing(6)
+        for col in range(5):
+            fields_grid.setColumnStretch(col, 1)
+
+        btn_sel_all = QPushButton("Tout selectionner")
+        btn_sel_none = QPushButton("Vider selection")
+        btn_apply = QPushButton("Appliquer")
+        btn_sel_all.clicked.connect(lambda: self._select_all(True))
+        btn_sel_none.clicked.connect(lambda: self._select_all(False))
+        btn_apply.clicked.connect(self.apply_bulk)
 
         for index, (lbl, w) in enumerate([
             ("Type echantillon", self.bulk_type),
             ("Categorie", self.bulk_categorie),
             ("Type peche", self.bulk_type_peche),
             ("Autre oss", self.bulk_autre),
+            ("Observation", self.bulk_observation),
             ("Ecailles", self.bulk_ecailles),
             ("Montees", self.bulk_montees),
             ("Empreintes", self.bulk_empreintes),
             ("Otolithes", self.bulk_otolithes),
-            ("Observation", self.bulk_observation),
         ]):
-            row = index // 4
-            col = index % 4
+            row = index // 5
+            col = index % 5
             field_widget = QWidget()
             field_layout = QVBoxLayout(field_widget)
             field_layout.setContentsMargins(0, 0, 0, 0)
-            field_layout.setSpacing(5)
+            field_layout.setSpacing(3)
             field_layout.addWidget(QLabel(lbl))
             field_layout.addWidget(w)
+            field_widget.setMinimumHeight(52)
             fields_grid.addWidget(field_widget, row, col)
-        box_layout.addLayout(fields_grid)
 
-
-        btn_sel_all = QPushButton("Tout selectionner")
-        btn_sel_none = QPushButton("Vider selection")
-
-        btn_apply = QPushButton("Appliquer")
-        btn_sel_all.clicked.connect(lambda: self._select_all(True))
-        btn_sel_none.clicked.connect(lambda: self._select_all(False))
-        btn_apply.clicked.connect(self.apply_bulk)
-
-        buttons_row = QHBoxLayout()
+        buttons_widget = QWidget()
+        buttons_row = QHBoxLayout(buttons_widget)
+        buttons_row.setContentsMargins(0, 16, 0, 0)
+        buttons_row.setSpacing(8)
         buttons_row.addWidget(btn_sel_all)
         buttons_row.addWidget(btn_sel_none)
         buttons_row.addWidget(btn_apply)
         buttons_row.addStretch()
-        buttons_row.setSpacing(10)
-        box_layout.addLayout(buttons_row)
-
-        scroll = QScrollArea()
-        scroll.setWidgetResizable(False)
-        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
-        scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        scroll.setFrameShape(QFrame.NoFrame)
-        scroll.setWidget(box)
-
-        outer.addWidget(scroll)
-        return container
+        fields_grid.addWidget(buttons_widget, 1, 4)
+        box_layout.addLayout(fields_grid)
+        return box
 
     def _build_table(self) -> QWidget:
         if hasattr(self, "table") and self.table is not None:
@@ -767,7 +738,7 @@ class MainWindow(QMainWindow):
         widths = {
             "selected": 44,
             "ref": 92,
-            "code_type_echantillon": 260,
+            "code_type_echantillon": 330,
             "categorie": 100,
             "type_peche": 110,
             "autre_oss": 90,
@@ -858,7 +829,8 @@ class MainWindow(QMainWindow):
     def _build_bottom_panel(self) -> QWidget:
         w = QWidget()
         h = QHBoxLayout(w)
-        h.setSpacing(12)
+        h.setContentsMargins(0, 4, 0, 0)
+        h.setSpacing(10)
 
         btn_import = QPushButton("Lancer import")
         btn_import.setObjectName("btn_import")
@@ -891,17 +863,93 @@ class MainWindow(QMainWindow):
         h.addWidget(btn_pipeline)
         h.addStretch()
 
+        sep = QFrame()
+        sep.setFrameShape(QFrame.VLine)
+        sep.setObjectName("vSep")
+        h.addWidget(sep)
+
         self.lbl_status = QLabel("Pret")
-        self.lbl_status.setStyleSheet("font-weight: bold; padding: 8px;")
+        self.lbl_status.setObjectName("statusLabel")
         h.addWidget(self.lbl_status)
         return w
 
     def _refresh_context_labels(self) -> None:
-        source_label = "PAC final" if self.source_mode == "pac_final" else "Autre type de source"
-        source_name = self.source_path.name if str(self.source_path).strip() else "Aucun fichier source"
-        self.lbl_source.setText(f"Entree : {source_name}")
-        self.lbl_target.setText(f"Sortie : {self.out_path.name}")
-        self.lbl_paths.setText(f"Format : {source_label}")
+        self.lbl_target.setText(f"COLISA en cours : {self.out_path.name}")
+
+    def _select_target_file(self) -> None:
+        p, _ = QFileDialog.getOpenFileName(self, "Sélectionner COLISA en cours", str(self.out_path.parent), "Excel (*.xlsx)")
+        if not p:
+            return
+        dest = Path(p)
+        if dest.suffix.lower() != ".xlsx":
+            QMessageBox.warning(self, "Sélection", "Le fichier doit être un .xlsx")
+            return
+        
+        # Valider que le fichier a les bonnes en-têtes
+        try:
+            if not self._validate_colisa_file(dest):
+                QMessageBox.warning(
+                    self, 
+                    "Fichier invalide", 
+                    "Ce fichier ne possède pas la structure COLISA requise.\n"
+                    "Il doit contenir les colonnes 'Code échantillon' et 'Numero individu'."
+                )
+                return
+        except Exception as exc:
+            QMessageBox.warning(self, "Erreur", f"Impossible de valider le fichier :\n{exc}")
+            return
+        
+        self.out_path = dest
+        self._refresh_type_options()
+        self._refresh_context_labels()
+        self._save_settings()
+        self.lbl_status.setText(f"COLISA en cours sélectionné : {dest.name}")
+
+    def _validate_colisa_file(self, file_path: Path) -> bool:
+        """Vérifier que le fichier a la structure COLISA requise."""
+        try:
+            openpyxl, _ = core.ensure_deps()
+            workbook = openpyxl.load_workbook(file_path, read_only=True, data_only=True)
+            
+            # Normaliser les en-têtes
+            import unicodedata
+            import re
+            
+            def normalize_header(s: Any) -> str:
+                txt = str(s).strip().lower() if s else ""
+                if not txt:
+                    return ""
+                txt = unicodedata.normalize("NFKD", txt)
+                txt = "".join(ch for ch in txt if not unicodedata.combining(ch))
+                txt = re.sub(r"[^a-z0-9]+", " ", txt)
+                return re.sub(r"\s+", " ", txt).strip()
+            
+            # Vérifier que les colonnes requises existent
+            required_headers = {"code echantillon", "numero individu"}
+            
+            # Chercher n'importe quelle feuille qui contient les colonnes requises
+            for sheet_name in workbook.sheetnames:
+                ws = workbook[sheet_name]
+                found_headers = set()
+                
+                for col_idx in range(1, min(ws.max_column + 1, 50)):
+                    cell_val = ws.cell(1, col_idx).value
+                    if cell_val:
+                        normalized = normalize_header(cell_val)
+                        if "code echantillon" in normalized:
+                            found_headers.add("code echantillon")
+                        elif "numero individu" in normalized or "numero de capture" in normalized:
+                            found_headers.add("numero individu")
+                
+                # Si on a trouvé les colonnes requises, valider le fichier
+                if required_headers.issubset(found_headers):
+                    workbook.close()
+                    return True
+            
+            workbook.close()
+            return False
+        except Exception:
+            return False
 
     def _load_settings(self) -> None:
         if not SETTINGS_FILE.exists():
@@ -1369,13 +1417,24 @@ class MainWindow(QMainWindow):
           23 = Empreintes
         """
         self._individus_sortie = {}
+        self._col_map_sortie = {}
         if not self.out_path.exists():
             return
         try:
             import openpyxl
             from config.constants import DEFAULT_TARGET_SHEET
             wb = openpyxl.load_workbook(str(self.out_path), read_only=True, data_only=True)
-            ws = wb[DEFAULT_TARGET_SHEET] if DEFAULT_TARGET_SHEET in wb.sheetnames else wb[wb.sheetnames[0]]
+
+            def _resolve_sheet_by_name(workbook, sheet_name: str):
+                if sheet_name in workbook.sheetnames:
+                    return workbook[sheet_name]
+                normalized_expected = str(sheet_name or "").strip().lower()
+                for candidate in workbook.sheetnames:
+                    if str(candidate or "").strip().lower() == normalized_expected:
+                        return workbook[candidate]
+                return workbook[workbook.sheetnames[0]]
+
+            ws = _resolve_sheet_by_name(wb, DEFAULT_TARGET_SHEET)
 
             # Lire l'en-tete pour trouver les colonnes dynamiquement
             col_map = {}
@@ -1397,6 +1456,8 @@ class MainWindow(QMainWindow):
             if "num_individu" not in col_map or "code_type_echantillon" not in col_map:
                 wb.close()
                 return
+
+            self._col_map_sortie = col_map
 
             for excel_row_num, data_row in enumerate(ws.iter_rows(min_row=2, values_only=True), start=2):
                 num_ind = str(data_row[col_map["num_individu"] - 1] or "").strip()
@@ -1433,6 +1494,9 @@ class MainWindow(QMainWindow):
         rows_brutes = result["rows"]
         self.rows = fusionner_lignes_ec_ot(rows_brutes)
         self.missing_codes = result["missing_codes"]
+        if self.source_mode == "custom" and isinstance(result.get("source_mapping"), dict):
+            self.source_mapping = result["source_mapping"]
+            self._save_settings()
 
         # Update UI
         self._render_table()
@@ -1488,14 +1552,29 @@ class MainWindow(QMainWindow):
             return "otolithes"
         return "montees"
 
-    def _preparer_alertes_ec_ot_import(self, rows: List[Dict[str, Any]]) -> tuple[List[Dict[str, Any]], List[str]]:
+    def _preparer_alertes_ec_ot_import(
+        self, rows: List[Dict[str, Any]]
+    ) -> tuple[List[Dict[str, Any]], List[str], List[str], List[str]]:
         """
-        Repere les lignes EC/OT deja presentes dans le fichier de sortie.
-        Ces lignes sont retirees de l'import et un message indique ou completer manuellement.
+        Repere les lignes EC/OT par rapport au fichier de sortie :
+        - Existant + champs vides a remplir → fusion securisee via service import.
+        - Existant + tout deja rempli → alerte manuelle.
+        - Non existant → info "nouveau, sera rajoute".
+        Retourne (lignes_filtrees, alertes_manuelles, fusions_auto, nouveaux).
         """
         self._lire_individus_fichier_sortie()
         lignes_import: List[Dict[str, Any]] = []
         alertes: List[str] = []
+        fusions: List[str] = []
+        nouveaux: List[str] = []
+
+        CHAMPS_EC_OT = ["ecailles_brutes", "montees", "otolithes", "empreintes"]
+        NOMS_FR = {
+            "ecailles_brutes": "ecailles brutes",
+            "montees": "montees",
+            "otolithes": "otolithes",
+            "empreintes": "empreintes",
+        }
 
         for row in rows:
             row_copy = dict(row)
@@ -1505,49 +1584,113 @@ class MainWindow(QMainWindow):
 
             famille = _famille_ec_ot(row_copy.get("code_type_echantillon", ""))
             num_ind = str(row_copy.get("num_individu", "") or "").strip()
+
+            if not famille or not num_ind:
+                lignes_import.append(row_copy)
+                continue
+
             existant = self._individus_sortie.get(num_ind)
-            if famille and num_ind and existant:
-                ligne_existante = str(existant.get("row", "") or "").strip() or "?"
+
+            if not existant:
+                # Nouvel echantillon : sera rajoute normalement
+                nouveaux.append(f"  {num_ind}  →  non existant, sera rajoute")
+                lignes_import.append(row_copy)
+                continue
+
+            ligne_existante = str(existant.get("row", "") or "").strip() or "?"
+
+            # Detecter les champs vides dans l'existant que le nouvel import peut remplir
+            champs_a_fusionner = []
+            for champ in CHAMPS_EC_OT:
+                val_ex = str(existant.get(champ, "") or "").strip()
+                val_nv = str(row_copy.get(champ, "") or "").strip()
+                if (not val_ex or val_ex == "0") and val_nv and val_nv != "0":
+                    champs_a_fusionner.append(champ)
+
+            if champs_a_fusionner:
+                row_copy["code_type_echantillon"] = existant["code_type_echantillon"]
+                row_copy["_merge_ec_ot"] = True
+                noms_fr = [NOMS_FR.get(c, c) for c in champs_a_fusionner]
+                fusions.append(
+                    f"  {num_ind}  (ligne {ligne_existante})  →  {', '.join(noms_fr)}"
+                )
+            else:
                 colonne = self._colonne_cible_ec_ot(row_copy, existant)
                 type_existant = str(existant.get("code_type_echantillon", "") or "").strip() or "EC/OT"
                 alertes.append(
-                    f"{num_ind} -> ligne {ligne_existante} -> rajouter dans la colonne {colonne} (type actuel : {type_existant})"
+                    f"  {num_ind}  (ligne {ligne_existante})  →  colonne « {colonne} » deja remplie (type : {type_existant})"
                 )
                 row_copy["selected"] = False
+
             lignes_import.append(row_copy)
 
-        return lignes_import, alertes
+        return lignes_import, alertes, fusions, nouveaux
 
-    def _show_ec_ot_import_dialog(self, alertes: List[str]) -> None:
-        """Affiche les lignes EC/OT a completer manuellement avant import."""
-        from PySide6.QtWidgets import QDialog, QVBoxLayout, QLabel, QTextEdit, QPushButton, QHBoxLayout
+    def _show_ec_ot_import_dialog(
+        self,
+        alertes: List[str],
+        fusions: List[str] = None,
+        nouveaux: List[str] = None,
+    ) -> None:
+        """Affiche un resume clair des echantillons EC/OT : nouveaux, fusionnes, a completer."""
+        from PySide6.QtWidgets import (
+            QDialog, QVBoxLayout, QLabel, QTextEdit, QPushButton, QHBoxLayout, QFrame
+        )
+
+        fusions = fusions or []
+        nouveaux = nouveaux or []
 
         dlg = QDialog(self)
-        dlg.setWindowTitle("Lignes EC/OT a completer")
-        dlg.setMinimumWidth(620)
-        dlg.setMinimumHeight(380)
+        dlg.setWindowTitle("Echantillons EC / OT — Resume")
+        dlg.setMinimumWidth(600)
 
         layout = QVBoxLayout(dlg)
-        titre = QLabel(f"{len(alertes)} ligne(s) ne seront pas importee(s).")
-        titre.setStyleSheet("font-weight: bold; font-size: 12pt;")
-        titre.setWordWrap(True)
-        layout.addWidget(titre)
+        layout.setSpacing(10)
 
-        sub = QLabel(
-            "Ces echantillons existent deja dans le fichier de sortie. "
-            "Rajoute-les manuellement sur la ligne indiquee, dans la bonne colonne."
-        )
-        sub.setWordWrap(True)
-        layout.addWidget(sub)
+        def _section(titre, couleur, sous_titre, lignes):
+            lbl = QLabel(titre)
+            lbl.setStyleSheet(f"font-weight: bold; color: {couleur};")
+            layout.addWidget(lbl)
+            sub = QLabel(sous_titre)
+            sub.setWordWrap(True)
+            layout.addWidget(sub)
+            txt = QTextEdit()
+            txt.setReadOnly(True)
+            txt.setPlainText("\n".join(lignes))
+            txt.setMaximumHeight(max(55, len(lignes) * 22))
+            layout.addWidget(txt)
+            sep = QFrame()
+            sep.setFrameShape(QFrame.HLine)
+            layout.addWidget(sep)
 
-        txt = QTextEdit()
-        txt.setReadOnly(True)
-        txt.setPlainText("\n".join(alertes))
-        layout.addWidget(txt)
+        if nouveaux:
+            _section(
+                f"Nouveaux echantillons ({len(nouveaux)})",
+                "#4fc3f7",
+                "Ces echantillons n'existent pas encore dans le COLISA — ils seront rajoutes :",
+                nouveaux,
+            )
+
+        if fusions:
+            _section(
+                f"Ajout automatique ({len(fusions)})",
+                "#81c784",
+                "Ces champs manquants seront ajoutes automatiquement dans la ligne existante :",
+                fusions,
+            )
+
+        if alertes:
+            _section(
+                f"A completer manuellement ({len(alertes)})",
+                "#ef9a9a",
+                "Ces colonnes sont deja remplies — ouvre le fichier COLISA et complete manuellement :",
+                alertes,
+            )
 
         btns = QHBoxLayout()
         btns.addStretch()
-        btn_ok = QPushButton("OK - Compris")
+        btn_ok = QPushButton("OK")
+        btn_ok.setMinimumWidth(90)
         btn_ok.clicked.connect(dlg.accept)
         btns.addWidget(btn_ok)
         layout.addLayout(btns)
@@ -1808,11 +1951,15 @@ class MainWindow(QMainWindow):
                 from presentation.dialogs import WarningDialog
                 WarningDialog.show(self, "Lancer import", f"Ce fichier existe déjà et ne sera pas écrasé :\n{dest}\n\nChoisis un autre nom.")
                 return
+            start_numero = self._demander_numero_depart_nouveau_colisa()
+            if start_numero < 0:
+                return
             try:
                 base_path = self._ensure_internal_target_base()
                 dest.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copy2(base_path, dest)
                 self.out_path = dest
+                self._import_start_numero = start_numero
             except Exception as exc:
                 ErrorDialog.show(self, "Lancer import", f"Impossible de créer le fichier :\n{exc}")
                 return
@@ -1895,6 +2042,27 @@ class MainWindow(QMainWindow):
             WarningDialog.show(self, "Code de depart", f"Valeur invalide : '{text}'")
             return -1
 
+    def _demander_numero_depart_nouveau_colisa(self) -> int:
+        """Ask the first numeric part for code_echantillon when creating a new COLISA."""
+        text, ok = QInputDialog.getText(
+            self,
+            "Code échantillon de départ",
+            "Par quel code échantillon commencer ?\n\n"
+            "Exemples : T88580 ou 88580",
+            text=self.ed_start.text().strip() or "T1",
+        )
+        if not ok:
+            return -1
+
+        raw = text.strip()
+        digits = "".join(c for c in raw if c.isdigit())
+        try:
+            return max(1, int(digits)) if digits else -1
+        except ValueError:
+            from presentation.dialogs import WarningDialog
+            WarningDialog.show(self, "Code de départ", f"Valeur invalide : '{text}'")
+            return -1
+
     def run_import(self) -> None:
         """
         Run import in background thread (UI responsive).
@@ -1905,18 +2073,18 @@ class MainWindow(QMainWindow):
         try:
             # Validate
             data = self._read_table()
-            data, alertes_ec_ot = self._preparer_alertes_ec_ot_import(data)
+            data, alertes_ec_ot, fusions_ec_ot, nouveaux_ec_ot = self._preparer_alertes_ec_ot_import(data)
             selected_count = sum(1 for r in data if bool(r.get("selected")))
             if selected_count == 0:
-                if alertes_ec_ot:
-                    self._show_ec_ot_import_dialog(alertes_ec_ot)
+                if alertes_ec_ot or fusions_ec_ot or nouveaux_ec_ot:
+                    self._show_ec_ot_import_dialog(alertes_ec_ot, fusions_ec_ot, nouveaux_ec_ot)
                     self.lbl_status.setText("Import bloque pour lignes EC/OT deja presentes")
                 from presentation.dialogs import WarningDialog
                 WarningDialog.show(self, "Import", "Aucune ligne n'est selectionnee pour l'import.")
                 return
 
-            if alertes_ec_ot:
-                self._show_ec_ot_import_dialog(alertes_ec_ot)
+            if alertes_ec_ot or fusions_ec_ot or nouveaux_ec_ot:
+                self._show_ec_ot_import_dialog(alertes_ec_ot, fusions_ec_ot, nouveaux_ec_ot)
 
             output_already_exists = self.out_path.exists()
 

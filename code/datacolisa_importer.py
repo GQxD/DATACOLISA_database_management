@@ -189,6 +189,89 @@ def get_workbook_sheet_names(source_file: Path) -> List[str]:
 # Accès aux cellules
 # ---------------------------------------------------------------------------
 
+CUSTOM_SOURCE_HEADER_ALIASES: dict[str, list[str]] = {
+    "num_individu": ["numero individu", "num individu", "num", "nsach", "n sach", "ref", "reference"],
+    "date_capture": ["date", "date capture", "date de capture"],
+    "code_espece": ["code espece", "espece", "especes", "species"],
+    "lac_riviere": ["lac riviere", "riviere", "lieux secteurs", "lieu secteur"],
+    "longueur_mm": ["longueur totale mm", "longueur mm", "lf", "lt"],
+    "poids_g": ["poids g", "poids", "poidstot"],
+    "maturite": ["maturite", "code maturite sexuelle"],
+    "sexe": ["sexe", "code sexe"],
+    "age_total": ["age total", "nht", "age"],
+    "lieu_capture": ["lieu capture", "lieu de capture", "lieux secteurs", "lieu secteur"],
+    "type_peche": ["type peche", "type peche engin", "engin"],
+    "categorie": ["categorie", "categorie pecheur"],
+    "pecheur": ["pecheur", "nom du pecheur"],
+}
+
+
+def enrich_custom_source_mapping(rows: List[List[Any]], mapping: dict[str, Any]) -> dict[str, Any]:
+    """Complete/corrige un mapping d'autre source a partir des en-tetes Excel."""
+    mapping = dict(mapping or {})
+    columns = dict(mapping.get("columns", {}) or {})
+    aliases = {alias for values in CUSTOM_SOURCE_HEADER_ALIASES.values() for alias in values}
+
+    def score_row(row: List[Any]) -> int:
+        normalized = [normalize_header_name(value) for value in row]
+        score = sum(1 for value in normalized if value in aliases)
+        if "nsach" in normalized:
+            score += 4
+        if "date" in normalized:
+            score += 2
+        if "lf" in normalized or "lt" in normalized:
+            score += 1
+        if "espece" in normalized or "especes" in normalized:
+            score += 3
+        return score
+
+    saved_header_row = mapping.get("header_row")
+    if saved_header_row:
+        try:
+            saved_index = max(0, int(saved_header_row) - 1)
+        except Exception:
+            saved_index = 0
+        if saved_index < len(rows) and score_row(rows[saved_index]) > 0:
+            header_index = saved_index
+        else:
+            header_index = max(range(min(len(rows), 50)), key=lambda index: score_row(rows[index]), default=0)
+    else:
+        header_index = max(range(min(len(rows), 50)), key=lambda index: score_row(rows[index]), default=0)
+
+    headers = rows[header_index] if header_index < len(rows) else []
+    normalized_headers = [normalize_header_name(value) for value in headers]
+    alias_columns: dict[str, int] = {}
+    for key, key_aliases in CUSTOM_SOURCE_HEADER_ALIASES.items():
+        for alias in key_aliases:
+            if alias in normalized_headers:
+                alias_columns[key] = normalized_headers.index(alias)
+                break
+
+    if "code_espece" in alias_columns:
+        columns["code_espece"] = alias_columns["code_espece"]
+
+    for key, col_index in alias_columns.items():
+        columns.setdefault(key, col_index)
+
+    if "code_espece" not in columns:
+        preview_rows = rows[header_index + 1: header_index + 31]
+        max_cols = max((len(row) for row in preview_rows), default=0)
+        for col_index in range(max_cols):
+            values = [
+                normalize(row[col_index]).lower()
+                for row in preview_rows
+                if col_index < len(row)
+            ]
+            species_hits = sum(1 for value in values if value in {"truite", "saumon", "ombre", "omble"})
+            if species_hits >= 3:
+                columns["code_espece"] = col_index
+                break
+
+    mapping["header_row"] = header_index + 1
+    mapping["columns"] = columns
+    return mapping
+
+
 def get_pos(row: List[Any], one_based_col: int) -> Any:
     """Retourne la valeur d'une colonne (numérotation 1-based)."""
     idx = one_based_col - 1

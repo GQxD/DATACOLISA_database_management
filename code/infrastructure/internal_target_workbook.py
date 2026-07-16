@@ -14,11 +14,11 @@ TOTAL_COLUMNS = 41
 
 # En-tetes codes en dur — structure identique aux fichiers COLISA de reference
 HEADER_POSITIONS = {
-    1:  "Code unit\u00e9 gestionnaire",
+    1:  "Code unite gestionnaire",
     2:  "Site Atelier",
     3:  "Numero du correspondant",
     4:  "Code type echantillon",
-    5:  "Code \u00e9chantillon",
+    5:  "Code echantillon",
     6:  "Code esp\u00e8ce",
     7:  "Sous-esp\u00e8ce ",
     8:  "Organisme pr\u00e9leveur",
@@ -103,12 +103,15 @@ def build_numero_identification_value(
     date_capture: object,
     numero_individu: object,
     type_peche: object = None,
+    code_espece: object = None,
+    code_echantillon: object = None,
 ) -> str:
-    """Build the Numéro d'identification value: {LAC2}{TYPE1}{DDMMYYYY}-{NUMERO}."""
+    """Build the Numero d'identification value like Excel formula L/F/K/S/E."""
     lac_part = str(lac_riviere or "").strip()[:2]
-    type_source = type_peche if str(type_peche or "").strip() else code_type_echantillon
-    type_part = str(type_source or "").strip()[:1]
+    espece_source = code_espece if code_espece is not None else code_type_echantillon
+    espece_part = str(espece_source or "").strip()[:1]
     num_part = str(numero_individu or "").strip()
+    code_part = str(code_echantillon or "").strip()
 
     date_part = ""
     if isinstance(date_capture, dt.datetime):
@@ -116,10 +119,23 @@ def build_numero_identification_value(
     if isinstance(date_capture, dt.date):
         date_part = date_capture.strftime("%d%m%Y")
 
-    if not (lac_part or type_part or date_part or num_part):
+    if not (lac_part or espece_part or date_part or num_part or code_part):
         return ""
 
-    return f"{lac_part}{type_part}{date_part}-{num_part}".upper()
+    num_segment = f"-{num_part}" if num_part else ""
+    code_segment = f"-{code_part}" if code_part else ""
+    return f"{lac_part}{espece_part}{date_part}{num_segment}{code_segment}".upper()
+
+
+def build_numero_identification_formula(row_index: int) -> str:
+    """Build the exact Excel formula for the CODE IDENTIFICATION column."""
+    # Use English function names and commas for programmatic formula insertion.
+    # Excel will localize function names for the user locale when the file is opened.
+    return (
+        f'=UPPER(CONCATENATE(LEFT(L{row_index},2),LEFT(F{row_index},1),'
+        f'TEXT(K{row_index},"DDMMYYYY"),'
+        f'IF(S{row_index}<>"",CONCATENATE("-",S{row_index}),""),"-",E{row_index}))'
+    )
 
 
 def build_code_echantillon_value(
@@ -197,9 +213,10 @@ def create_internal_target_workbook(output_path: Path, openpyxl_module, template
             worksheet.cell(row_index, col_index).number_format = fmt
 
     # ── Feuil2 (vide) ──────────────────────────────────────────────────────────
-    workbook.create_sheet("Feuil2")
 
     # ── Type echantillon ───────────────────────────────────────────────────────
+    workbook.create_sheet("Feuil2")
+
     type_sheet = workbook.create_sheet("Type echantillon")
     type_sheet.cell(1, 1).value = "Code type echantillon"
     type_sheet.cell(1, 2).value = "Description"
@@ -302,25 +319,92 @@ def create_internal_target_workbook(output_path: Path, openpyxl_module, template
     corr_sheet.column_dimensions["E"].width = 16
     corr_sheet.column_dimensions["F"].width = 28
 
+    _copy_reference_sheets_from_embedded_template(workbook, openpyxl_module)
+    workbook.create_sheet("Feuil1 ")
+
     output_path.parent.mkdir(parents=True, exist_ok=True)
     workbook.save(output_path)
     workbook.close()
     return output_path
 
 
+def _copy_reference_sheets_from_embedded_template(workbook, openpyxl_module) -> None:
+    """Fill reference sheets in the generated COLISA workbook from the embedded template."""
+    try:
+        from infrastructure.embedded_assets import get_colisa_logiciel_template_path
+
+        template_path = get_colisa_logiciel_template_path()
+        if not template_path.exists():
+            return
+        template_wb = openpyxl_module.load_workbook(template_path, read_only=False, data_only=True)
+    except Exception:
+        return
+
+    sheet_name_map = {
+        "Sites atelier": "Sites Atelier",
+        "Types d'échantillon": "Type echantillon",
+        "Types d'echantillon": "Type echantillon",
+        "Espèces": "Espèces",
+        "Especes": "Espèces",
+        "Stades": "Stade",
+        "Sens migratoires": "Sens migratoire",
+        "Maturités sexuelles": "Maturité sexuelle",
+        "Maturites sexuelles": "Maturité sexuelle",
+        "Sexes": "Sexe",
+        "Marquages individuels": "Code marque ind",
+        "Correspondants": "Correspondants",
+    }
+
+    try:
+        for src_name in template_wb.sheetnames:
+            if normalize_sheet_name(src_name) == normalize_sheet_name("Echantillons"):
+                continue
+
+            dst_name = sheet_name_map.get(src_name, src_name)
+            if dst_name in workbook.sheetnames:
+                dst_ws = workbook[dst_name]
+                _clear_sheet_values(dst_ws)
+            else:
+                dst_ws = workbook.create_sheet(dst_name)
+
+            src_ws = template_wb[src_name]
+            for row in src_ws.iter_rows():
+                for src_cell in row:
+                    dst_ws.cell(src_cell.row, src_cell.column).value = src_cell.value
+
+            for col_letter, dimension in src_ws.column_dimensions.items():
+                if dimension.width:
+                    dst_ws.column_dimensions[col_letter].width = dimension.width
+    finally:
+        template_wb.close()
+
+
+def _clear_sheet_values(worksheet) -> None:
+    for row in worksheet.iter_rows():
+        for cell in row:
+            cell.value = None
+            cell._comment = None
+            cell.hyperlink = None
+
+
+def _resolve_sheet_by_name(workbook, sheet_name: str):
+    if sheet_name in workbook.sheetnames:
+        return workbook[sheet_name]
+
+    normalized_expected = normalize_sheet_name(sheet_name)
+    for candidate in workbook.sheetnames:
+        if normalize_sheet_name(candidate) == normalized_expected:
+            return workbook[candidate]
+
+    return workbook[workbook.sheetnames[0]]
+
+
 def create_target_workbook_from_template(output_path: Path, openpyxl_module, template_path: Path) -> Path:
-    """Clone the provided template workbook while keeping only headers/structure."""
+    """Clone the provided template workbook while keeping only the target sheet data rows."""
     workbook = openpyxl_module.load_workbook(template_path)
     try:
-        target_sheet = workbook[DEFAULT_TARGET_SHEET] if DEFAULT_TARGET_SHEET in workbook.sheetnames else workbook[workbook.sheetnames[0]]
+        target_sheet = _resolve_sheet_by_name(workbook, DEFAULT_TARGET_SHEET)
         _clear_worksheet_data_keep_header(target_sheet)
-
-        for sheet_name in workbook.sheetnames:
-            if sheet_name == target_sheet.title:
-                continue
-            if normalize_sheet_name(sheet_name) == "type echantillon":
-                continue
-            _clear_worksheet_data_keep_header(workbook[sheet_name])
 
         output_path.parent.mkdir(parents=True, exist_ok=True)
         workbook.save(output_path)
@@ -352,10 +436,10 @@ def validate_collect_science_source_workbook(workbook, sheet_name: str | None = 
     """Validate that an Excel file follows the COLISA structure needed by Collect-Science."""
     target_sheet = sheet_name or DEFAULT_TARGET_SHEET
 
-    if target_sheet in workbook.sheetnames:
-        worksheet = workbook[target_sheet]
+    if workbook.sheetnames:
+        worksheet = _resolve_sheet_by_name(workbook, target_sheet)
     else:
-        worksheet = workbook[workbook.sheetnames[0]] if workbook.sheetnames else None
+        worksheet = None
 
     if worksheet is None:
         return False, "Le fichier Excel ne contient aucune feuille exploitable."
