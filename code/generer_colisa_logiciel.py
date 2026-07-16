@@ -8,7 +8,12 @@ import unicodedata
 from pathlib import Path
 from typing import Any, Dict, List
 
+import logging
+
 from openpyxl import load_workbook
+from config.constants import DEFAULT_TARGET_SHEET
+
+logger = logging.getLogger(__name__)
 
 import datacolisa_importer as core
 from domain.value_objects import DateCapture
@@ -76,6 +81,18 @@ def _clear_data_rows(worksheet) -> None:
     for row_index in range(2, worksheet.max_row + 1):
         for col_index in range(1, worksheet.max_column + 1):
             worksheet.cell(row_index, col_index).value = None
+
+
+def _resolve_sheet_name(workbook, expected_sheet: str = DEFAULT_TARGET_SHEET) -> str:
+    if expected_sheet in workbook.sheetnames:
+        return expected_sheet
+    normalized_expected = str(expected_sheet or "").strip().lower()
+    for sheet_name in workbook.sheetnames:
+        if str(sheet_name or "").strip().lower() == normalized_expected:
+            return sheet_name
+    if workbook.sheetnames:
+        return workbook.sheetnames[0]
+    raise ValueError("Le fichier Excel ne contient aucune feuille exploitable.")
 
 
 def _sampling_date(value: Any):
@@ -185,7 +202,7 @@ def lire_rows_depuis_excel_colisa(colisa_path: Path) -> List[Dict[str, Any]]:
     try:
         workbook = load_workbook(colisa_path, read_only=True, data_only=True)
         try:
-            worksheet = workbook["Feuil1 "] if "Feuil1 " in workbook.sheetnames else workbook[workbook.sheetnames[0]]
+            worksheet = workbook[_resolve_sheet_name(workbook)]
             header_map = _build_header_map(worksheet)
             data_rows = [list(values) for values in worksheet.iter_rows(min_row=2, values_only=True)]
             rows = _rows_from_header_map(data_rows, header_map)
@@ -194,7 +211,7 @@ def lire_rows_depuis_excel_colisa(colisa_path: Path) -> List[Dict[str, Any]]:
         finally:
             workbook.close()
     except Exception:
-        pass
+        logger.debug("Lecture openpyxl échouée, repli sur xlrd", exc_info=True)
 
     sheet_names = core.get_workbook_sheet_names(colisa_path)
     if not sheet_names:

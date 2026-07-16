@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Set, Tuple
 
 from openpyxl import Workbook, load_workbook
+from config.constants import DEFAULT_TARGET_SHEET
 from domain.value_objects import DateCapture
 from infrastructure.file_value_normalizer import coerce_numeric_string
 from infrastructure.internal_target_workbook import build_numero_identification_value
@@ -29,7 +30,7 @@ SAMPLE_TYPES = {
     "montees": (2, "ECAILLE MONTEE 2", "-MON"),
     "empreintes": (3, "EMPREINTE 3", None),
     "opercules": (4, "OPERCULES 4", None),
-    "otolithes": (5, "OTOLITHE 5", "-OT"),
+    "otolithes": (5, "OTOLITHE 5", "-MON"),
     "vertebres": (6, "VERTEBRE 6", None),
     "maxillaires": (7, "MAXILLAIRES 7", None),
     "chair_lyophilisee": (8, "CHAIR LYOPHILISEE 8", None),
@@ -39,6 +40,21 @@ SAMPLE_TYPES = {
 }
 
 CHILD_SAMPLE_KEYS = {"montees", "otolithes"}
+
+# Ordre de traitement pour les fichiers CSV (ecailles brutes → montées → otolithes → ...)
+SAMPLE_KEYS_ORDER = [
+    "ecailles_brutes",
+    "montees",
+    "empreintes",
+    "otolithes",
+    "opercules",
+    "nageoires",
+    "vertebres",
+    "maxillaires",
+    "chair_lyophilisee",
+    "muscle",
+    "fraction_inconnue",
+]
 
 CSV_FILENAME_BY_SAMPLE_KEY = {
     "ecailles_brutes": "ecaille_brute.csv",
@@ -92,6 +108,21 @@ CONTAINER_FIXED_TYPES = {
     "ecailles_brutes": "TIROIR",
     "montees": "BOITE",
     "otolithes": "BOITE",
+}
+
+# Contenants par défaut pour chaque type d'échantillon (utilisés si non spécifiés)
+DEFAULT_CONTAINERS = {
+    "ecailles_brutes": "TIROIR",
+    "montees": "BOITE",
+    "empreintes": "BOITE",
+    "otolithes": "BOITE",
+    "opercules": "BOITE",
+    "vertebres": "BOITE",
+    "maxillaires": "BOITE",
+    "chair_lyophilisee": "SAC",
+    "nageoires": "BOITE",
+    "muscle": "SAC",
+    "fraction_inconnue": "AUTRE",
 }
 
 TYPE_ECHANTILLON_TO_SAMPLE_KEY = [
@@ -193,6 +224,7 @@ def infer_sample_key_from_type(code_type_echantillon: Any) -> Optional[str]:
 
 
 def resolve_present_sample_keys_from_dict(data_row: Dict[str, Any]) -> Set[str]:
+    # Étape 1: Vérifier les colonnes d'échantillons explicites (OUI/NON ou numéro)
     explicit = {
         key
         for key in SAMPLE_TYPES
@@ -201,8 +233,84 @@ def resolve_present_sample_keys_from_dict(data_row: Dict[str, Any]) -> Set[str]:
     if explicit:
         return explicit
 
-    inferred = infer_sample_key_from_type(data_row.get("code_type_echantillon"))
-    return {inferred} if inferred else set()
+    # Étape 2: Utiliser la nouvelle logique basée sur code_type_echantillon + information_stockage
+    return resolve_sample_keys_from_dict_type_and_storage(data_row)
+
+
+def resolve_sample_keys_from_dict_type_and_storage(data_row: Dict[str, Any]) -> Set[str]:
+    """
+    Logique de classification simplifiée avec colonnes ecailles_brutes, montees, otolithes.
+    
+    Pour EC: regarder colonnes ecailles_brutes et montees
+    Pour OT: regarder colonne otolithes
+    Pour les autres types: logique simple par code_type
+    """
+    result: Set[str] = set()
+
+    # Récupérer les valeurs des colonnes
+    type_code = normalize_text(data_row.get("code_type_echantillon"))
+    ecaille_brute_val = data_row.get("ecailles_brutes")
+    montees_val = data_row.get("montees")
+    otolithes_val = data_row.get("otolithes")
+    opercules_val = data_row.get("opercules")
+    nageoires_val = data_row.get("nageoires")
+
+    # ============================================================
+    # CAS SPÉCIAL: EC (peut être ecailles_brutes ou montees)
+    # ============================================================
+    if type_code.upper() in ("EC", "EM"):
+        # Regarder colonne ecailles_brutes
+        if valeur_present(ecaille_brute_val):
+            result.add("ecailles_brutes")
+        # Regarder colonne montees
+        if valeur_present(montees_val):
+            result.add("montees")
+        # Si rien de spécifié → ECAILLES BRUTES par défaut
+        if not result:
+            result.add("ecailles_brutes")
+    
+    # ============================================================
+    # OTOLITHES
+    # ============================================================
+    elif type_code.upper() == "OT":
+        if valeur_present(otolithes_val):
+            result.add("otolithes")
+        if not result:
+            result.add("otolithes")
+    
+    # ============================================================
+    # AUTRES TYPES: logique simple par code_type
+    # ============================================================
+    elif type_code.upper() == "EB":
+        result.add("ecailles_brutes")
+    elif type_code.upper() in ("ON", "OP", "OPE"):
+        result.add("opercules")
+    elif type_code.upper() in ("NN", "AN", "DN", "PN", "QN"):
+        result.add("nageoires")
+    elif type_code.upper() in ("VN", "VER"):
+        result.add("vertebres")
+    elif type_code.upper() in ("MN", "MAX"):
+        result.add("maxillaires")
+    elif type_code.upper() in ("MU", "MI", "MP"):
+        result.add("muscle")
+    elif type_code.upper() == "FN":
+        result.add("fraction_inconnue")
+
+    # ============================================================
+    # Vérifier aussi les colonnes explicites (OUI/1)
+    # ============================================================
+    if valeur_present(ecaille_brute_val):
+        result.add("ecailles_brutes")
+    if valeur_present(montees_val):
+        result.add("montees")
+    if valeur_present(otolithes_val):
+        result.add("otolithes")
+    if valeur_present(opercules_val):
+        result.add("opercules")
+    if valeur_present(nageoires_val):
+        result.add("nageoires")
+
+    return result
 
 
 def resolve_present_sample_keys_from_excel_row(
@@ -210,6 +318,7 @@ def resolve_present_sample_keys_from_excel_row(
     col_map: Dict[str, int],
     code_type_echantillon: Any,
 ) -> Set[str]:
+    # Étape 1: Vérifier les colonnes d'échantillons explicites (OUI/NON ou numéro)
     explicit = {
         key
         for key in SAMPLE_TYPES
@@ -218,8 +327,85 @@ def resolve_present_sample_keys_from_excel_row(
     if explicit:
         return explicit
 
-    inferred = infer_sample_key_from_type(code_type_echantillon)
-    return {inferred} if inferred else set()
+    # Étape 2: Utiliser la nouvelle logique basée sur code_type_echantillon + information_stockage
+    return resolve_sample_keys_from_type_and_storage(
+        code_type_echantillon,
+        data_row,
+        col_map,
+    )
+
+
+def resolve_sample_keys_from_type_and_storage(
+    code_type_echantillon: Any,
+    data_row: Tuple[Any, ...],
+    col_map: Dict[str, int],
+) -> Set[str]:
+    """
+    Logique de classification simplifiée avec colonnes ecailles_brutes, montees, otolithes.
+    """
+    result: Set[str] = set()
+
+    # Récupérer les valeurs des colonnes
+    type_code = normalize_text(code_type_echantillon)
+    ecaille_brute_val = get_row_value(data_row, col_map, "ecailles_brutes")
+    montees_val = get_row_value(data_row, col_map, "montees")
+    otolithes_val = get_row_value(data_row, col_map, "otolithes")
+    opercules_val = get_row_value(data_row, col_map, "opercules")
+    nageoires_val = get_row_value(data_row, col_map, "nageoires")
+
+    # ============================================================
+    # CAS SPÉCIAL: EC (peut être ecailles_brutes ou montees)
+    # ============================================================
+    if type_code.upper() in ("EC", "EM"):
+        if valeur_present(ecaille_brute_val):
+            result.add("ecailles_brutes")
+        if valeur_present(montees_val):
+            result.add("montees")
+        if not result:
+            result.add("ecailles_brutes")
+    
+    # ============================================================
+    # OTOLITHES
+    # ============================================================
+    elif type_code.upper() == "OT":
+        if valeur_present(otolithes_val):
+            result.add("otolithes")
+        if not result:
+            result.add("otolithes")
+    
+    # ============================================================
+    # AUTRES TYPES
+    # ============================================================
+    elif type_code.upper() == "EB":
+        result.add("ecailles_brutes")
+    elif type_code.upper() in ("ON", "OP", "OPE"):
+        result.add("opercules")
+    elif type_code.upper() in ("NN", "AN", "DN", "PN", "QN"):
+        result.add("nageoires")
+    elif type_code.upper() in ("VN", "VER"):
+        result.add("vertebres")
+    elif type_code.upper() in ("MN", "MAX"):
+        result.add("maxillaires")
+    elif type_code.upper() in ("MU", "MI", "MP"):
+        result.add("muscle")
+    elif type_code.upper() == "FN":
+        result.add("fraction_inconnue")
+
+    # ============================================================
+    # Vérifier aussi les colonnes explicites (OUI/1)
+    # ============================================================
+    if valeur_present(ecaille_brute_val):
+        result.add("ecailles_brutes")
+    if valeur_present(montees_val):
+        result.add("montees")
+    if valeur_present(otolithes_val):
+        result.add("otolithes")
+    if valeur_present(opercules_val):
+        result.add("opercules")
+    if valeur_present(nageoires_val):
+        result.add("nageoires")
+
+    return result
 
 
 def build_skip_reason(
@@ -449,11 +635,22 @@ def parse_container_rules(raw_value: Optional[Any], sample_key: str) -> List[Tup
     return rules
 
 
-def resolve_container_value(rules: List[Tuple[int, int, str]], row_number: int) -> Optional[str]:
+def resolve_container_value(
+    rules: List[Tuple[int, int, str]], 
+    row_number: int,
+    sample_key: str,
+) -> Optional[str]:
+    """
+    Résout le contenant pour un type d'échantillon.
+    Utilise les règles définies par l'utilisateur, sinon le contenant par défaut.
+    """
+    # Chercher dans les règles définies
     for start, end, label in rules:
         if start <= row_number <= end:
             return label
-    return None
+    
+    # Utiliser le contenant par défaut si aucune règle n'est définie
+    return DEFAULT_CONTAINERS.get(sample_key)
 
 
 def _format_csv_row(row: Tuple[Any, ...]) -> List[str]:
@@ -481,7 +678,11 @@ def _write_collect_science_csv_files(output_path: Path, workbook) -> List[str]:
     output_dir = output_path.parent
     csv_files: List[str] = []
 
-    for sample_key, (_, sheet_name, _) in SAMPLE_TYPES.items():
+    # Utiliser l'ordre défini pour les fichiers CSV
+    for sample_key in SAMPLE_KEYS_ORDER:
+        if sample_key not in SAMPLE_TYPES:
+            continue
+        _, sheet_name, _ = SAMPLE_TYPES[sample_key]
         if sheet_name not in workbook.sheetnames:
             continue
 
@@ -555,7 +756,7 @@ def build_md_num_individu_value(
 
 def read_sample_counts_from_colisa(
     colisa_path: Path,
-    colisa_sheet: str = "Feuil1 ",
+    colisa_sheet: str = DEFAULT_TARGET_SHEET,
     allowed_num_individus: Optional[Set[str]] = None,
 ) -> Dict[str, int]:
     allowed_values = {normalize_text(v) for v in (allowed_num_individus or set()) if normalize_text(v)}
@@ -589,7 +790,7 @@ def generer_collec_science(
     sample_multiple_value: int = 5,
     containers: Dict[str, Optional[str]] = None,
     forcer_anomalies: bool = False,
-    colisa_sheet: str = "Feuil1 ",
+    colisa_sheet: str = DEFAULT_TARGET_SHEET,
     allowed_num_individus: Optional[Set[str]] = None,
     prefer_fixed_num_individu_column: bool = True,
     md_num_individu_column_index: Optional[int] = None,
@@ -702,9 +903,9 @@ def generer_collec_science(
 
             sample_positions[key] += 1
             parent_id = boss_identifier if key in CHILD_SAMPLE_KEYS else None
-            sample_id = t_code if suffix is None or parent_id is None else f"{t_code}{suffix}"
+            sample_id = f"{t_code}{suffix}" if suffix else t_code
             preview_row_number = row_index - 1
-            container_val = resolve_container_value(container_rules.get(key, []), preview_row_number)
+            container_val = resolve_container_value(container_rules.get(key, []), preview_row_number, key)
             sample_multiple_value_cell = _sample_multiple_value_for_key(key, sample_multiple_value)
             md_num_individu = build_md_num_individu_value(
                 lac_riviere=lac_riviere,
@@ -854,9 +1055,9 @@ def generer_collec_science_depuis_rows(
 
             sample_positions[key] += 1
             parent_id = boss_identifier if key in CHILD_SAMPLE_KEYS else None
-            sample_id = t_code if suffix is None or parent_id is None else f"{t_code}{suffix}"
+            sample_id = f"{t_code}{suffix}" if suffix else t_code
             preview_row_number = row_index
-            container_val = resolve_container_value(container_rules.get(key, []), preview_row_number)
+            container_val = resolve_container_value(container_rules.get(key, []), preview_row_number, key)
             sample_multiple_value_cell = _sample_multiple_value_for_key(key, sample_multiple_value)
             md_num_individu = build_md_num_individu_value(
                 lac_riviere=lac_riviere,
