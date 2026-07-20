@@ -297,6 +297,28 @@ class ExcelPreviewModel(QAbstractTableModel):
         self._rows: List[List[Any]] = []
         self._container_col: int = 0
 
+    @staticmethod
+    def _build_uuid_preview(row: Dict[str, Any], source_row_number: int) -> str:
+        """Affiche les UUID exacts qui seront écrits lors de la génération."""
+        from generer_collec_science import build_expected_sample_uuids
+        return "\n".join(build_expected_sample_uuids(row, source_row_number))
+
+    @staticmethod
+    def _to_collect_science_row(headers: List[str], values: List[Any]) -> Dict[str, Any]:
+        """Convertit une ligne de l'aperçu en clés utilisées par l'export."""
+        from generer_collec_science import COLISA_REQUIRED_HEADERS, normalize_header
+
+        row: Dict[str, Any] = {}
+        for header, value in zip(headers, values):
+            normalized = normalize_header(header)
+            if normalized in SAMPLE_KEYS:
+                row[normalized] = value
+            for key, aliases in COLISA_REQUIRED_HEADERS.items():
+                if normalized in {normalize_header(alias) for alias in aliases}:
+                    row[key] = value
+                    break
+        return row
+
     def load_from_file(self, path: Path, sheet_name: Optional[str] = None) -> None:
         self.beginResetModel()
         self._headers = []
@@ -310,6 +332,7 @@ class ExcelPreviewModel(QAbstractTableModel):
                 self.endResetModel()
                 return
             file_headers = [str(h).strip() if h is not None else "" for h in all_rows[0]]
+<<<<<<< Updated upstream
             
             # Ajouter les colonnes type_echantillon et container_parent_identifier
             self._headers = file_headers + ["type_echantillon", "container_parent_identifier"]
@@ -330,6 +353,17 @@ class ExcelPreviewModel(QAbstractTableModel):
                 type_label = ", ".join(sorted(sample_keys)) if sample_keys else "?"
                 
                 row_data.append(type_label)
+=======
+            self._headers = file_headers + ["UUID Collect-Science", "container_parent_identifier"]
+            self._container_col = len(file_headers) + 1
+            for source_row_number, raw_row in enumerate(all_rows[1:], start=2):
+                row_data = list(raw_row)
+                while len(row_data) < len(file_headers):
+                    row_data.append(None)
+                row_data.append(self._build_uuid_preview(
+                    self._to_collect_science_row(file_headers, row_data), source_row_number
+                ))
+>>>>>>> Stashed changes
                 row_data.append("")
                 self._rows.append(row_data)
         except Exception as exc:
@@ -381,6 +415,7 @@ class ExcelPreviewModel(QAbstractTableModel):
         ]
         ordered = [k for k in priority if k in all_keys]
         ordered += [k for k in all_keys if k not in ordered and k != "selected"]
+<<<<<<< Updated upstream
         
         # Ajouter la colonne type_echantillon (calculée automatiquement)
         self._headers = ordered + ["type_echantillon", "container_parent_identifier"]
@@ -393,6 +428,13 @@ class ExcelPreviewModel(QAbstractTableModel):
             sample_keys = resolve_sample_keys_from_dict_type_and_storage(r)
             type_label = ", ".join(sorted(sample_keys)) if sample_keys else "?"
             row_data.append(type_label)
+=======
+        self._headers = ordered + ["UUID Collect-Science", "container_parent_identifier"]
+        self._container_col = len(ordered) + 1
+        for source_row_number, r in enumerate(rows, start=1):
+            row_data = [r.get(k, "") for k in ordered]
+            row_data.append(self._build_uuid_preview(r, source_row_number))
+>>>>>>> Stashed changes
             row_data.append("")
             self._rows.append(row_data)
         self.endResetModel()

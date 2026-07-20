@@ -9,6 +9,7 @@ import datetime
 import math
 import re
 import unicodedata
+import uuid
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set, Tuple
 
@@ -74,8 +75,12 @@ HEADERS = [
     "sample_identifier", "collection_id", "sample_type_id", "sample_status_id",
     "country_code", "country_origin_code", "referent_id", "sampling_date",
     "sample_multiple_value", "sample_parent_identifier", "container_parent_identifier",
-    "md_taxon", "md_longueur", "md_riviere", "md_num_individu",
+    "md_taxon", "md_longueur", "md_riviere", "md_num_individu", "uuid",
 ]
+
+# Namespace fixe : un même échantillon Collect-Science conserve le même UUID
+# entre l'aperçu et le fichier généré, y compris après une nouvelle génération.
+COLLECT_SCIENCE_UUID_NAMESPACE = uuid.UUID("ee19953c-41fc-4783-9b12-2f7a3ac1a9f0")
 
 # Dans le nouveau format COLISA à 40 colonnes, "Numero individu" est en colonne 19.
 FALLBACK_NUM_INDIVIDU_COLUMN_INDEX = 18  # zero-based Excel column 19
@@ -454,6 +459,41 @@ def normalize_text(value: Any) -> str:
     if value is None:
         return ""
     return str(value).strip()
+
+
+def build_sample_uuid(sample_identifier: Any, sample_type_id: Any, source_row_number: Any) -> str:
+    """Construit l'UUID stable et unique d'un échantillon Collect-Science."""
+    identity = (
+        f"collect-science:{normalize_text(source_row_number)}:"
+        f"{normalize_text(sample_type_id)}:{normalize_text(sample_identifier)}"
+    )
+    return str(uuid.uuid5(COLLECT_SCIENCE_UUID_NAMESPACE, identity))
+
+
+def build_expected_sample_uuids(data_row: Dict[str, Any], source_row_number: Any) -> List[str]:
+    """Retourne les UUID qui seront générés pour une ligne affichée dans l'aperçu."""
+    code_echantillon = data_row.get("code_echantillon")
+    code_type_echantillon = data_row.get("code_type_echantillon")
+    t_code = normalize_text(code_echantillon) or build_code_echantillon_value(
+        lac_riviere=data_row.get("lac_riviere"),
+        code_type_echantillon=code_type_echantillon,
+        date_capture=data_row.get("date_capture"),
+        age_total=data_row.get("age_total"),
+        numero_individu=data_row.get("num_individu"),
+        type_peche=data_row.get("type_peche"),
+    )
+    if not t_code:
+        return []
+
+    present_sample_keys = resolve_present_sample_keys_from_dict(data_row)
+    has_parent = "ecailles_brutes" in present_sample_keys
+    uuids: List[str] = []
+    for key, (type_id, _sheet_label, suffix) in SAMPLE_TYPES.items():
+        if key not in present_sample_keys:
+            continue
+        sample_id = t_code if suffix is None or not has_parent else f"{t_code}{suffix}"
+        uuids.append(build_sample_uuid(sample_id, type_id, source_row_number))
+    return uuids
 
 
 def normalize_sampling_date(value: Any) -> Any:
@@ -925,6 +965,7 @@ def generer_collec_science(
                 coerce_numeric_string(longueur),
                 str(lac_riviere) if lac_riviere else None,
                 md_num_individu,
+                build_sample_uuid(sample_id, type_id, row_index),
             ]
 
             for col_idx, val in enumerate(ligne, start=1):
@@ -1077,6 +1118,7 @@ def generer_collec_science_depuis_rows(
                 coerce_numeric_string(longueur),
                 str(lac_riviere) if lac_riviere else None,
                 md_num_individu,
+                build_sample_uuid(sample_id, type_id, row_index),
             ]
 
             for col_idx, val in enumerate(ligne, start=1):
