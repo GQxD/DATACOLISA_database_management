@@ -295,13 +295,14 @@ class ExcelPreviewModel(QAbstractTableModel):
         super().__init__(parent)
         self._headers: List[str] = []
         self._rows: List[List[Any]] = []
+        self._type_col: int = 0
         self._container_col: int = 0
 
     @staticmethod
-    def _build_uuid_preview(row: Dict[str, Any], source_row_number: int) -> str:
+    def _build_uuid_preview(row: Dict[str, Any]) -> str:
         """Affiche les UUID exacts qui seront écrits lors de la génération."""
         from generer_collec_science import build_expected_sample_uuids
-        return "\n".join(build_expected_sample_uuids(row, source_row_number))
+        return "\n".join(build_expected_sample_uuids(row))
 
     @staticmethod
     def _to_collect_science_row(headers: List[str], values: List[Any]) -> Dict[str, Any]:
@@ -332,38 +333,22 @@ class ExcelPreviewModel(QAbstractTableModel):
                 self.endResetModel()
                 return
             file_headers = [str(h).strip() if h is not None else "" for h in all_rows[0]]
-<<<<<<< Updated upstream
-            
-            # Ajouter les colonnes type_echantillon et container_parent_identifier
-            self._headers = file_headers + ["type_echantillon", "container_parent_identifier"]
+            # Colonnes calculées de l'aperçu.
+            self._headers = file_headers + ["type_echantillon", "UUID Collect-Science", "container_parent_identifier"]
             self._type_col = len(file_headers)
-            self._container_col = len(file_headers) + 1
-            
-            # Créer un mapping des colonnes pour la classification
+            self._container_col = len(file_headers) + 2
             col_map = self._build_col_map(file_headers)
-            
+
             for raw_row in all_rows[1:]:
                 row_data = list(raw_row)
                 while len(row_data) < len(file_headers):
                     row_data.append(None)
-                
-                # Calculer le type d'échantillon automatiquement
+
                 code_type = row_data[col_map.get("code_type_echantillon", 0)] if col_map.get("code_type_echantillon", 0) < len(row_data) else ""
                 sample_keys = self._resolve_sample_keys_from_row(row_data, col_map, code_type)
                 type_label = ", ".join(sorted(sample_keys)) if sample_keys else "?"
-                
                 row_data.append(type_label)
-=======
-            self._headers = file_headers + ["UUID Collect-Science", "container_parent_identifier"]
-            self._container_col = len(file_headers) + 1
-            for source_row_number, raw_row in enumerate(all_rows[1:], start=2):
-                row_data = list(raw_row)
-                while len(row_data) < len(file_headers):
-                    row_data.append(None)
-                row_data.append(self._build_uuid_preview(
-                    self._to_collect_science_row(file_headers, row_data), source_row_number
-                ))
->>>>>>> Stashed changes
+                row_data.append(self._build_uuid_preview(self._to_collect_science_row(file_headers, row_data)))
                 row_data.append("")
                 self._rows.append(row_data)
         except Exception as exc:
@@ -415,26 +400,16 @@ class ExcelPreviewModel(QAbstractTableModel):
         ]
         ordered = [k for k in priority if k in all_keys]
         ordered += [k for k in all_keys if k not in ordered and k != "selected"]
-<<<<<<< Updated upstream
-        
-        # Ajouter la colonne type_echantillon (calculée automatiquement)
-        self._headers = ordered + ["type_echantillon", "container_parent_identifier"]
+        self._headers = ordered + ["type_echantillon", "UUID Collect-Science", "container_parent_identifier"]
         self._type_col = len(ordered)
-        self._container_col = len(ordered) + 1
-        
+        self._container_col = len(ordered) + 2
+
         for r in rows:
             row_data = [r.get(k, "") for k in ordered]
-            # Calculer le type d'échantillon automatiquement
             sample_keys = resolve_sample_keys_from_dict_type_and_storage(r)
             type_label = ", ".join(sorted(sample_keys)) if sample_keys else "?"
             row_data.append(type_label)
-=======
-        self._headers = ordered + ["UUID Collect-Science", "container_parent_identifier"]
-        self._container_col = len(ordered) + 1
-        for source_row_number, r in enumerate(rows, start=1):
-            row_data = [r.get(k, "") for k in ordered]
-            row_data.append(self._build_uuid_preview(r, source_row_number))
->>>>>>> Stashed changes
+            row_data.append(self._build_uuid_preview(r))
             row_data.append("")
             self._rows.append(row_data)
         self.endResetModel()

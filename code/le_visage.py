@@ -711,7 +711,7 @@ class MainWindow(QMainWindow):
             | QAbstractItemView.AnyKeyPressed
         )
         self.table.setSelectionBehavior(QTableView.SelectRows)
-        self.table.setSelectionMode(QTableView.SingleSelection)
+        self.table.setSelectionMode(QTableView.ExtendedSelection)
         self.table.clicked.connect(self._on_table_clicked)
 
         # Set up delegates for combo box columns (create editor only when editing!)
@@ -844,6 +844,20 @@ class MainWindow(QMainWindow):
         btn_collec.setFixedHeight(38)
         btn_collec.clicked.connect(self.generer_collec_science)
 
+        btn_uuid = QPushButton("Voir les UUID")
+        btn_uuid.setObjectName("btn_uuid")
+        btn_uuid.setMinimumWidth(145)
+        btn_uuid.setFixedHeight(38)
+        btn_uuid.setToolTip("Affiche les UUID des échantillons cochés pour Collect-Science")
+        btn_uuid.clicked.connect(self.voir_uuid_collect_science)
+
+        btn_uuid_excel = QPushButton("Ajouter UUID à Excel")
+        btn_uuid_excel.setObjectName("btn_uuid_excel")
+        btn_uuid_excel.setMinimumWidth(175)
+        btn_uuid_excel.setFixedHeight(38)
+        btn_uuid_excel.setToolTip("Ajoute les UUID manquants dans la colonne choisie d'un fichier Excel")
+        btn_uuid_excel.clicked.connect(self.ajouter_uuid_a_excel)
+
         btn_colisa_logiciel = QPushButton("Generer COLISA logiciel")
         btn_colisa_logiciel.setObjectName("btn_colisa_logiciel")
         btn_colisa_logiciel.setMinimumWidth(220)
@@ -859,6 +873,8 @@ class MainWindow(QMainWindow):
 
         h.addWidget(btn_import)
         h.addWidget(btn_collec)
+        h.addWidget(btn_uuid)
+        h.addWidget(btn_uuid_excel)
         h.addWidget(btn_colisa_logiciel)
         h.addWidget(btn_pipeline)
         h.addStretch()
@@ -2291,6 +2307,154 @@ class MainWindow(QMainWindow):
     def generer_collec_science(self) -> None:
         """Generate Collect-Science from a selected Excel file."""
         self.generer_collec_science_depuis_excel()
+
+    def voir_uuid_collect_science(self) -> None:
+        """Affiche les UUID prévus pour le ou les échantillons cochés."""
+        from PySide6.QtWidgets import QTextEdit
+        from generer_collec_science import build_expected_sample_uuids
+
+        selected_rows = [row for row in self.table_model.get_rows() if bool(row.get("selected"))]
+        if not selected_rows:
+            QMessageBox.information(
+                self, "UUID Collect-Science",
+                "Coche au moins un échantillon dans la colonne « Selection »."
+            )
+            return
+
+        lines: List[str] = []
+        for source_row_number, row in enumerate(selected_rows, start=1):
+            sample_ref = str(
+                row.get("code_echantillon") or row.get("ref") or row.get("num_individu") or source_row_number
+            )
+            uuids = build_expected_sample_uuids(row)
+            if uuids:
+                lines.extend(f"{sample_ref}  |  {sample_uuid}" for sample_uuid in uuids)
+            else:
+                lines.append(f"{sample_ref}  |  UUID indisponible (type ou identifiant manquant)")
+
+        dialog = QDialog(self)
+        dialog.setWindowTitle("UUID Collect-Science")
+        dialog.setMinimumSize(720, 380)
+        layout = QVBoxLayout(dialog)
+        label = QLabel(
+            f"UUID des {len(selected_rows)} échantillon(s) coché(s). "
+            "Ces valeurs seront celles du fichier Collect-Science généré."
+        )
+        label.setWordWrap(True)
+        layout.addWidget(label)
+        text = QTextEdit()
+        text.setReadOnly(True)
+        text.setPlainText("Référence échantillon  |  UUID\n" + "\n".join(lines))
+        layout.addWidget(text)
+        buttons = QHBoxLayout()
+        buttons.addStretch()
+        copy_button = QPushButton("Copier")
+        copy_button.clicked.connect(lambda: QApplication.clipboard().setText(text.toPlainText()))
+        close_button = QPushButton("Fermer")
+        close_button.clicked.connect(dialog.accept)
+        buttons.addWidget(copy_button)
+        buttons.addWidget(close_button)
+        layout.addLayout(buttons)
+        dialog.exec()
+
+    def ajouter_uuid_a_excel(self) -> None:
+        """Ajoute les UUID Collect-Science absents dans la colonne Excel choisie."""
+        from openpyxl import load_workbook
+        from generer_collec_science import (
+            COLISA_REQUIRED_HEADERS,
+            build_colisa_column_map,
+            build_expected_sample_uuids,
+            get_row_value,
+        )
+
+        file_name, _ = QFileDialog.getOpenFileName(
+            self, "Choisir le fichier Excel à compléter", str(self.out_path.parent), "Excel (*.xlsx)"
+        )
+        if not file_name:
+            return
+
+        source_path = Path(file_name)
+        try:
+            workbook = load_workbook(source_path)
+        except Exception as exc:
+            QMessageBox.warning(self, "Ajouter UUID", f"Impossible d'ouvrir le fichier :\n{exc}")
+            return
+
+        try:
+            sheet_name = workbook.sheetnames[0]
+            if len(workbook.sheetnames) > 1:
+                sheet_name, accepted = QInputDialog.getItem(
+                    self, "Feuille Excel", "Choisis la feuille à compléter :",
+                    workbook.sheetnames, 0, False
+                )
+                if not accepted:
+                    return
+            worksheet = workbook[sheet_name]
+            headers = [worksheet.cell(1, column).value for column in range(1, worksheet.max_column + 1)]
+            choices = [f"Colonne {index} — {header or '(sans titre)'}" for index, header in enumerate(headers, start=1)]
+            choices.append("Nouvelle colonne à la fin (uuid)")
+            choice, accepted = QInputDialog.getItem(
+                self, "Colonne UUID", "Dans quelle colonne écrire les UUID ?",
+                choices, len(choices) - 1, False
+            )
+            if not accepted:
+                return
+
+            if choice == choices[-1]:
+                uuid_column = worksheet.max_column + 1
+                worksheet.cell(1, uuid_column).value = "uuid"
+            else:
+                uuid_column = choices.index(choice) + 1
+
+            col_map = build_colisa_column_map(worksheet)
+            if "code_echantillon" not in col_map and "num_individu" not in col_map:
+                QMessageBox.warning(
+                    self, "Ajouter UUID",
+                    "Le fichier doit contenir au minimum « Code echantillon » ou « Numero individu »."
+                )
+                return
+
+            added = 0
+            ignored = 0
+            unavailable = 0
+            for row_number in range(2, worksheet.max_row + 1):
+                target_cell = worksheet.cell(row_number, uuid_column)
+                if str(target_cell.value or "").strip():
+                    ignored += 1
+                    continue
+                values = tuple(worksheet.cell(row_number, column).value for column in range(1, worksheet.max_column + 1))
+                data_row = {
+                    key: get_row_value(values, col_map, key)
+                    for key in COLISA_REQUIRED_HEADERS
+                }
+                uuids = build_expected_sample_uuids(data_row)
+                if not uuids:
+                    unavailable += 1
+                    continue
+                target_cell.value = "\n".join(uuids)
+                target_cell.alignment = target_cell.alignment.copy(wrap_text=True)
+                added += 1
+
+            default_path = source_path.with_name(f"{source_path.stem}_avec_uuid.xlsx")
+            output_name, _ = QFileDialog.getSaveFileName(
+                self, "Enregistrer le fichier complété", str(default_path), "Excel (*.xlsx)"
+            )
+            if not output_name:
+                return
+            output_path = Path(output_name)
+            if output_path.suffix.lower() != ".xlsx":
+                output_path = output_path.with_suffix(".xlsx")
+            workbook.save(output_path)
+            self.lbl_status.setText(f"UUID ajoutés : {output_path.name}")
+            QMessageBox.information(
+                self, "UUID ajoutés",
+                f"Fichier créé : {output_path}\n\n"
+                f"UUID ajoutés : {added}\nDéjà renseignés : {ignored}\nImpossible à déterminer : {unavailable}"
+            )
+        except Exception as exc:
+            QMessageBox.warning(self, "Ajouter UUID", f"Erreur pendant l'ajout des UUID :\n{exc}")
+        finally:
+            workbook.close()
 
     def _choose_collec_science_source(self) -> str | None:
         from PySide6.QtWidgets import QMessageBox

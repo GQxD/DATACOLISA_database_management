@@ -78,8 +78,8 @@ HEADERS = [
     "md_taxon", "md_longueur", "md_riviere", "md_num_individu", "uuid",
 ]
 
-# Namespace fixe : un même échantillon Collect-Science conserve le même UUID
-# entre l'aperçu et le fichier généré, y compris après une nouvelle génération.
+# Namespace fixe : un même code d'échantillon et son type produisent toujours
+# le même UUID, qu'il soit exporté seul ou dans un lot.
 COLLECT_SCIENCE_UUID_NAMESPACE = uuid.UUID("ee19953c-41fc-4783-9b12-2f7a3ac1a9f0")
 
 # Dans le nouveau format COLISA à 40 colonnes, "Numero individu" est en colonne 19.
@@ -461,16 +461,13 @@ def normalize_text(value: Any) -> str:
     return str(value).strip()
 
 
-def build_sample_uuid(sample_identifier: Any, sample_type_id: Any, source_row_number: Any) -> str:
-    """Construit l'UUID stable et unique d'un échantillon Collect-Science."""
-    identity = (
-        f"collect-science:{normalize_text(source_row_number)}:"
-        f"{normalize_text(sample_type_id)}:{normalize_text(sample_identifier)}"
-    )
+def build_sample_uuid(sample_identifier: Any, sample_type_id: Any) -> str:
+    """Construit l'UUID permanent d'un échantillon Collect-Science."""
+    identity = f"collect-science:{normalize_text(sample_type_id)}:{normalize_text(sample_identifier)}"
     return str(uuid.uuid5(COLLECT_SCIENCE_UUID_NAMESPACE, identity))
 
 
-def build_expected_sample_uuids(data_row: Dict[str, Any], source_row_number: Any) -> List[str]:
+def build_expected_sample_uuids(data_row: Dict[str, Any]) -> List[str]:
     """Retourne les UUID qui seront générés pour une ligne affichée dans l'aperçu."""
     code_echantillon = data_row.get("code_echantillon")
     code_type_echantillon = data_row.get("code_type_echantillon")
@@ -492,7 +489,7 @@ def build_expected_sample_uuids(data_row: Dict[str, Any], source_row_number: Any
         if key not in present_sample_keys:
             continue
         sample_id = t_code if suffix is None or not has_parent else f"{t_code}{suffix}"
-        uuids.append(build_sample_uuid(sample_id, type_id, source_row_number))
+        uuids.append(build_sample_uuid(sample_id, type_id))
     return uuids
 
 
@@ -965,7 +962,7 @@ def generer_collec_science(
                 coerce_numeric_string(longueur),
                 str(lac_riviere) if lac_riviere else None,
                 md_num_individu,
-                build_sample_uuid(sample_id, type_id, row_index),
+                build_sample_uuid(sample_id, type_id),
             ]
 
             for col_idx, val in enumerate(ligne, start=1):
@@ -1118,7 +1115,7 @@ def generer_collec_science_depuis_rows(
                 coerce_numeric_string(longueur),
                 str(lac_riviere) if lac_riviere else None,
                 md_num_individu,
-                build_sample_uuid(sample_id, type_id, row_index),
+                build_sample_uuid(sample_id, type_id),
             ]
 
             for col_idx, val in enumerate(ligne, start=1):
