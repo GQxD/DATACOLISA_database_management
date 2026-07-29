@@ -14,12 +14,14 @@ from domain.value_objects import DateCapture, RefCode
 from domain.business_rules import DataTransformations, TypePecheDeriver, ReferenceCodeGenerator
 from infrastructure.excel_reader import ExcelReader
 from infrastructure.excel_writer import ExcelWriter
+from generer_collec_science import build_expected_sample_uuids
 from infrastructure.csv_repository import CSVRepository
 from infrastructure.history_repository import HistoryRepository
 from infrastructure.internal_target_workbook import (
     build_code_echantillon_value,
     build_numero_identification_formula,
 )
+from openpyxl.utils import get_column_letter
 
 logger = logging.getLogger(__name__)
 
@@ -32,6 +34,11 @@ def _to_int(value: Any) -> Any:
         return int(float(str(value).strip()))
     except (ValueError, TypeError):
         return None
+
+
+def _has_explicit_uuid(csv_row: Dict[str, Any]) -> bool:
+    value = str(csv_row.get("uuid") or csv_row.get("UUID") or "").strip()
+    return bool(value)
 
 
 class ImportService:
@@ -75,6 +82,20 @@ class ImportService:
 
         # 3. Find headers and build indices
         header_row, header_map = self._find_header_row_and_map(ws)
+        if "uuid" in header_map and header_map["uuid"] != ws.max_column:
+            uuid_col = header_map["uuid"]
+            col_letter = get_column_letter(uuid_col)
+            ws.move_range(
+                f"{col_letter}{header_row}:{col_letter}{ws.max_row}",
+                rows=0,
+                cols=ws.max_column - uuid_col,
+            )
+            header_row, header_map = self._find_header_row_and_map(ws)
+        elif "uuid" not in header_map:
+            uuid_col = ws.max_column + 1
+            ws.cell(header_row, uuid_col).value = "UUID"
+            header_map["uuid"] = uuid_col
+
         existing_index = self._build_existing_index(ws, header_row, header_map)
 
         # 4. Initialize code sequence
@@ -105,6 +126,9 @@ class ImportService:
                 run_rows,
                 config
             )
+
+            if row_result.get("uuid_generated"):
+                result.uuid_generated += 1
 
             # Collect results
             if row_result["status"] == "imported":
@@ -167,7 +191,8 @@ class ImportService:
             return {
                 "status": "skipped_validation",
                 "errors": errors,
-                "reason": " | ".join(errors)
+                "reason": " | ".join(errors),
+                "uuid_generated": False,
             }
 
         # 3. Check for duplicates
@@ -198,13 +223,14 @@ class ImportService:
         self._apply_target_row(ws, target_row, csv_row, header_map, config)
 
         # 5. Propagate formulas
-        self._propagate_formulas_and_codes(
+        uuid_generated = self._propagate_formulas_and_codes(
             ws,
             target_row,
             header_row,
             header_map,
             seq_state,
-            csv_row
+            csv_row,
+            _has_explicit_uuid(csv_row),
         )
 
         # 6. Copy context
@@ -224,7 +250,8 @@ class ImportService:
         return {
             "status": "imported",
             "target_row": target_row,
-            "reason": "OK"
+            "reason": "OK",
+            "uuid_generated": uuid_generated,
         }
 
     def _handle_merge_ec_ot(
@@ -279,19 +306,29 @@ class ImportService:
         if action in ("ignore", "alert"):
             return {
                 "status": "duplicate",
-                "reason": "Doublon exact (ignoré)" if action == "ignore" else "Doublon exact (alerte)"
+                "reason": "Doublon exact (ignoré)" if action == "ignore" else "Doublon exact (alerte)",
+                "uuid_generated": False,
             }
 
         if action == "replace":
             target_row = existing_index[key]["row"]
             self._apply_target_row(ws, target_row, csv_row, header_map, config)
-            self._propagate_formulas_and_codes(ws, target_row, header_row, header_map, seq_state, csv_row)
+            uuid_generated = self._propagate_formulas_and_codes(
+                ws,
+                target_row,
+                header_row,
+                header_map,
+                seq_state,
+                csv_row,
+                _has_explicit_uuid(csv_row),
+            )
             self._copy_context_if_needed(ws, target_row, header_row, header_map, run_rows, csv_row)
 
             return {
                 "status": "imported_replace",
                 "target_row": target_row,
-                "reason": "Doublon remplacé"
+                "reason": "Doublon remplacé",
+                "uuid_generated": uuid_generated,
             }
 
         return {"status": "duplicate", "reason": "Politique inconnue"}
@@ -413,8 +450,9 @@ class ImportService:
         header_row: int,
         header_map: Dict[str, int],
         seq_state: Dict[str, Any],
-        csv_row: Dict[str, Any]
-    ) -> None:
+        csv_row: Dict[str, Any],
+        existing_uuid: bool = False,
+    ) -> bool:
         """Propagate formulas and generate codes."""
         min_row = header_row + 1
 
@@ -451,6 +489,15 @@ class ImportService:
             ws.cell(target_row, numero_identification_col).value = build_numero_identification_formula(target_row)
 
         self.excel_writer.propagate_all_formulas(ws, target_row, min_row)
+
+        uuid_values = build_expected_sample_uuids(csv_row)
+        if uuid_values:
+            uuid_col = header_map.get("uuid")
+            if uuid_col:
+                ws.cell(target_row, uuid_col).value = uuid_values[0]
+            return not existing_uuid
+
+        return False
 
         # Keep code_echantillon formula fixed in the application logic.
 

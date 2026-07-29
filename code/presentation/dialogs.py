@@ -283,6 +283,13 @@ class ImportResultDialog(QDialog):
                 f"Emplacement : {target_out}",
             ])
 
+        uuid_generated = int(result.get("uuid_generated", 0) or 0)
+        if uuid_generated > 0:
+            lines.extend([
+                "",
+                f"UUID genere(s) automatiquement pour {uuid_generated} ligne(s) sans UUID initial.",
+            ])
+
         if duplicates > 0:
             lines.extend([
                 "",

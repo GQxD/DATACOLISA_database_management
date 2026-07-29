@@ -188,6 +188,8 @@ class ImportResult:
     target_out: str = ""
     history_path: str = ""
 
+    uuid_generated: int = 0
+
     @property
     def imported_count(self) -> int:
         return len(self.imported)
@@ -222,6 +224,7 @@ class ImportResult:
             "duplicates": len(self.duplicates),
             "target_out": self.target_out,
             "history": self.history_path,
+            "uuid_generated": self.uuid_generated,
             # Detailed lists for dialog
             "imported_refs": imported_refs,
             "duplicate_refs": duplicate_refs,

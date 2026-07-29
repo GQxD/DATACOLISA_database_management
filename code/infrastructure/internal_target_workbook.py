@@ -10,7 +10,7 @@ from typing import Tuple
 from config.constants import DEFAULT_TARGET_SHEET
 
 
-TOTAL_COLUMNS = 41
+TOTAL_COLUMNS = 42
 
 # En-tetes codes en dur — structure identique aux fichiers COLISA de reference
 HEADER_POSITIONS = {
@@ -55,6 +55,7 @@ HEADER_POSITIONS = {
     39: "Mont\u00e9es",
     40: "Empreintes",
     41: "Otolithes",
+    42: "UUID",
 }
 
 # Donnees de la feuille "Type echantillon" (codes officiels COLISA)
