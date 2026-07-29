@@ -851,11 +851,11 @@ class MainWindow(QMainWindow):
         btn_uuid.setToolTip("Affiche les UUID des échantillons cochés pour Collect-Science")
         btn_uuid.clicked.connect(self.voir_uuid_collect_science)
 
-        btn_uuid_excel = QPushButton("Ajouter UUID à Excel")
+        btn_uuid_excel = QPushButton("Generateur UUID")
         btn_uuid_excel.setObjectName("btn_uuid_excel")
         btn_uuid_excel.setMinimumWidth(175)
         btn_uuid_excel.setFixedHeight(38)
-        btn_uuid_excel.setToolTip("Ajoute les UUID manquants dans la colonne choisie d'un fichier Excel")
+        btn_uuid_excel.setToolTip("Crée un fichier Excel avec uniquement les UUID des échantillons cochés")
         btn_uuid_excel.clicked.connect(self.ajouter_uuid_a_excel)
 
         btn_colisa_logiciel = QPushButton("Generer COLISA logiciel")
@@ -2358,103 +2358,70 @@ class MainWindow(QMainWindow):
         dialog.exec()
 
     def ajouter_uuid_a_excel(self) -> None:
-        """Ajoute les UUID Collect-Science absents dans la colonne Excel choisie."""
-        from openpyxl import load_workbook
-        from generer_collec_science import (
-            COLISA_REQUIRED_HEADERS,
-            build_colisa_column_map,
-            build_expected_sample_uuids,
-            get_row_value,
-        )
+        """Ouvre un fichier COLISA en cours et crée un fichier Excel contenant uniquement les UUID."""
+        from openpyxl import Workbook
+        from generer_colisa_logiciel import lire_rows_depuis_excel_colisa
+        from generer_collec_science import build_expected_sample_uuids
 
         file_name, _ = QFileDialog.getOpenFileName(
-            self, "Choisir le fichier Excel à compléter", str(self.out_path.parent), "Excel (*.xlsx)"
+            self, "Choisir le fichier COLISA en cours", str(self.out_path.parent), "Excel (*.xlsx)"
         )
         if not file_name:
             return
 
         source_path = Path(file_name)
         try:
-            workbook = load_workbook(source_path)
+            rows = lire_rows_depuis_excel_colisa(source_path)
         except Exception as exc:
-            QMessageBox.warning(self, "Ajouter UUID", f"Impossible d'ouvrir le fichier :\n{exc}")
+            QMessageBox.warning(self, "Generateur UUID", f"Impossible de lire le fichier COLISA :\n{exc}")
             return
 
-        try:
-            sheet_name = workbook.sheetnames[0]
-            if len(workbook.sheetnames) > 1:
-                sheet_name, accepted = QInputDialog.getItem(
-                    self, "Feuille Excel", "Choisis la feuille à compléter :",
-                    workbook.sheetnames, 0, False
-                )
-                if not accepted:
-                    return
-            worksheet = workbook[sheet_name]
-            headers = [worksheet.cell(1, column).value for column in range(1, worksheet.max_column + 1)]
-            choices = [f"Colonne {index} — {header or '(sans titre)'}" for index, header in enumerate(headers, start=1)]
-            choices.append("Nouvelle colonne à la fin (uuid)")
-            choice, accepted = QInputDialog.getItem(
-                self, "Colonne UUID", "Dans quelle colonne écrire les UUID ?",
-                choices, len(choices) - 1, False
+        if not rows:
+            QMessageBox.warning(
+                self, "Generateur UUID",
+                "Le fichier COLISA sélectionné ne contient aucune ligne exploitable."
             )
-            if not accepted:
-                return
+            return
 
-            if choice == choices[-1]:
-                uuid_column = worksheet.max_column + 1
-                worksheet.cell(1, uuid_column).value = "uuid"
+        uuid_values: List[str] = []
+        unavailable = 0
+        for row in rows:
+            uuids = build_expected_sample_uuids(row)
+            if uuids:
+                uuid_values.append(uuids[0])
             else:
-                uuid_column = choices.index(choice) + 1
+                uuid_values.append("")
+                unavailable += 1
 
-            col_map = build_colisa_column_map(worksheet)
-            if "code_echantillon" not in col_map and "num_individu" not in col_map:
-                QMessageBox.warning(
-                    self, "Ajouter UUID",
-                    "Le fichier doit contenir au minimum « Code echantillon » ou « Numero individu »."
-                )
-                return
+        default_path = source_path.with_name(f"{source_path.stem}_uuid.xlsx")
+        save_path, _ = QFileDialog.getSaveFileName(
+            self, "Enregistrer la liste UUID", str(default_path), "Excel (*.xlsx)"
+        )
+        if not save_path:
+            return
 
-            added = 0
-            ignored = 0
-            unavailable = 0
-            for row_number in range(2, worksheet.max_row + 1):
-                target_cell = worksheet.cell(row_number, uuid_column)
-                if str(target_cell.value or "").strip():
-                    ignored += 1
-                    continue
-                values = tuple(worksheet.cell(row_number, column).value for column in range(1, worksheet.max_column + 1))
-                data_row = {
-                    key: get_row_value(values, col_map, key)
-                    for key in COLISA_REQUIRED_HEADERS
-                }
-                uuids = build_expected_sample_uuids(data_row)
-                if not uuids:
-                    unavailable += 1
-                    continue
-                target_cell.value = "\n".join(uuids)
-                target_cell.alignment = target_cell.alignment.copy(wrap_text=True)
-                added += 1
+        output_path = Path(save_path)
+        if output_path.suffix.lower() != ".xlsx":
+            output_path = output_path.with_suffix(".xlsx")
 
-            default_path = source_path.with_name(f"{source_path.stem}_avec_uuid.xlsx")
-            output_name, _ = QFileDialog.getSaveFileName(
-                self, "Enregistrer le fichier complété", str(default_path), "Excel (*.xlsx)"
-            )
-            if not output_name:
-                return
-            output_path = Path(output_name)
-            if output_path.suffix.lower() != ".xlsx":
-                output_path = output_path.with_suffix(".xlsx")
-            workbook.save(output_path)
-            self.lbl_status.setText(f"UUID ajoutés : {output_path.name}")
-            QMessageBox.information(
-                self, "UUID ajoutés",
-                f"Fichier créé : {output_path}\n\n"
-                f"UUID ajoutés : {added}\nDéjà renseignés : {ignored}\nImpossible à déterminer : {unavailable}"
-            )
-        except Exception as exc:
-            QMessageBox.warning(self, "Ajouter UUID", f"Erreur pendant l'ajout des UUID :\n{exc}")
-        finally:
-            workbook.close()
+        workbook = Workbook()
+        worksheet = workbook.active
+        worksheet.title = "UUID"
+        worksheet.cell(1, 1).value = "UUID"
+        for row_index, uuid_value in enumerate(uuid_values, start=2):
+            worksheet.cell(row_index, 1).value = uuid_value
+
+        workbook.save(output_path)
+        self.lbl_status.setText(f"UUID exportés : {output_path.name}")
+
+        message = (
+            f"Fichier créé : {output_path}\n"
+            f"UUID exportés : {len(uuid_values)}"
+        )
+        if unavailable > 0:
+            message += f"\nUUID indisponibles pour {unavailable} ligne(s)."
+
+        QMessageBox.information(self, "UUID exportés", message)
 
     def _choose_collec_science_source(self) -> str | None:
         from PySide6.QtWidgets import QMessageBox
@@ -2757,6 +2724,7 @@ class MainWindow(QMainWindow):
             rows_written = int(result.get("rows_written", 0) or 0) if result else 0
             nb_csv = len(result.get("csv_files", [])) if result else 0
             skipped_details = result.get("skipped_details", []) if result else []
+            missing_uuid_identifiers = result.get("missing_uuid_identifiers", []) if result else []
             if rows_written <= 0:
                 detail_lines = skipped_details[:8]
                 details_text = ""
@@ -2784,6 +2752,13 @@ class MainWindow(QMainWindow):
                 preview_lines = skipped_details[:5]
                 info_lines.append(f"Lignes ignorees : {len(skipped_details)}")
                 info_lines.append("A corriger : " + " | ".join(preview_lines))
+            if missing_uuid_identifiers:
+                preview = ", ".join(missing_uuid_identifiers[:5])
+                suffix = "..." if len(missing_uuid_identifiers) > 5 else ""
+                info_lines.append(
+                    f"⚠ UUID absent dans le COLISA pour {len(missing_uuid_identifiers)} échantillon(s) : {preview}{suffix}."
+                )
+                info_lines.append("Aucun UUID n'a été créé par Collect-Science : les colonnes uuid et container_uuid sont restées vides.")
             if result and result.get("csv_files"):
                 info_lines.append("Fichiers Collect-Science CSV : " + ", ".join(result["csv_files"]))
             InfoDialog.show(self, "Collec-Science", "\n".join(info_lines))
@@ -3076,6 +3051,22 @@ class MainWindow(QMainWindow):
             WarningDialog.show(self, "Format COLISA logiciel", "Aucune ligne n'est cochee pour la generation.")
             return
 
+        missing_uuid_rows = [
+            row for row in rows
+            if not str(row.get("uuid") or row.get("UUID") or "").strip()
+        ]
+        create_missing_uuids = False
+        if missing_uuid_rows:
+            answer = QMessageBox.question(
+                self,
+                "UUID manquant",
+                f"{len(missing_uuid_rows)} échantillon(s) n'ont pas d'UUID dans le COLISA.\n\n"
+                "Créer les UUID manquants dans le fichier COLISA logiciel généré ?",
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.No,
+            )
+            create_missing_uuids = answer == QMessageBox.Yes
+
         default_dir = self.imports_dir
         default_path = default_dir / f"{source_name}_format_colisa_logiciel.xlsx"
         selected_path, _ = QFileDialog.getSaveFileName(
@@ -3099,17 +3090,32 @@ class MainWindow(QMainWindow):
             default_site_atelier=self.ed_site_atelier.text().strip(),
             default_numero_correspondant=self.ed_num_correspondant.text().strip(),
             default_organisme=self.ed_org.text().strip(),
+            create_missing_uuids=create_missing_uuids,
         )
         rows_written = int(result.get("rows_written", 0) or 0)
+        missing_uuid_identifiers = result.get("missing_uuid_identifiers", []) or []
+        uuid_generated = int(result.get("uuid_generated", 0) or 0)
         if rows_written <= 0:
             WarningDialog.show(self, "Format COLISA logiciel", "Aucun echantillon n'a ete ecrit dans le fichier genere.")
             self.lbl_status.setText("Aucun echantillon genere dans le format COLISA")
             return
         self.lbl_status.setText(f"Format COLISA logiciel genere : {output_path.name}")
+        message = f"Fichier Excel : {output_path}\nLignes generees : {rows_written}"
+        if missing_uuid_identifiers:
+            preview = ", ".join(str(value) for value in missing_uuid_identifiers[:5])
+            suffix = "..." if len(missing_uuid_identifiers) > 5 else ""
+            message += (
+                f"\n\n⚠ UUID absent dans le COLISA pour {len(missing_uuid_identifiers)} échantillon(s) : "
+                f"{preview}{suffix}."
+            )
+            if not uuid_generated:
+                message += "\nAucun UUID n'a été créé : la colonne UUID est restée vide."
+        if uuid_generated:
+            message += f"\nUUID créé(s) après confirmation : {uuid_generated}."
         InfoDialog.show(
             self,
             "Format COLISA logiciel",
-            f"Fichier Excel : {output_path}\nLignes generees : {rows_written}",
+            message,
         )
 
     def generer_pipeline_complet(self) -> None:
@@ -3195,5 +3201,4 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-
 

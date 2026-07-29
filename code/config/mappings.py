@@ -56,6 +56,7 @@ TARGET_HEADERS: Dict[str, List[str]] = {
     ],
     "observation_disponibilite": ["Observation disponibilit?", "Observation disponibilite", "Observation disponibilité"],
     "numero_identification": ["CODE IDENTIFICATION", "Numero identification", "Numéro identification", "Numero d'identification", "Numéro d'identification"],
+    "uuid": ["UUID", "uuid", "UUID Collect-Science", "UUID Collect Science"],
     "sous_espece": ["Sous-espece", "Sous-espèce", "Sous-esp?ce", "Sous-esp\u00e8ce "],
     "nom_operateur": ["Nom de l'operateur", "Nom de l'op\u00e9rateur", "Nom de l'op?rateur"],
     "lieu_capture": ["Lieu de capture / debarquement", "Lieu de capture"],

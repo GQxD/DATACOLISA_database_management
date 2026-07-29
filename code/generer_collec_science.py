@@ -75,7 +75,7 @@ HEADERS = [
     "sample_identifier", "collection_id", "sample_type_id", "sample_status_id",
     "country_code", "country_origin_code", "referent_id", "sampling_date",
     "sample_multiple_value", "sample_parent_identifier", "container_parent_identifier",
-    "md_taxon", "md_longueur", "md_riviere", "md_num_individu", "uuid",
+    "md_taxon", "md_longueur", "md_riviere", "md_num_individu", "uuid", "container_uuid",
 ]
 
 # Namespace fixe : un même code d'échantillon et son type produisent toujours
@@ -86,6 +86,7 @@ COLLECT_SCIENCE_UUID_NAMESPACE = uuid.UUID("ee19953c-41fc-4783-9b12-2f7a3ac1a9f0
 FALLBACK_NUM_INDIVIDU_COLUMN_INDEX = 18  # zero-based Excel column 19
 
 COLISA_REQUIRED_HEADERS = {
+    "uuid": ["uuid"],
     "code_echantillon": ["code echantillon"],
     "code_type_echantillon": ["code type echantillon"],
     "code_espece": ["code espece"],
@@ -112,7 +113,6 @@ COLISA_REQUIRED_HEADERS = {
 CONTAINER_FIXED_TYPES = {
     "ecailles_brutes": "TIROIR",
     "montees": "BOITE",
-    "otolithes": "BOITE",
 }
 
 # Contenants par défaut pour chaque type d'échantillon (utilisés si non spécifiés)
@@ -120,7 +120,7 @@ DEFAULT_CONTAINERS = {
     "ecailles_brutes": "TIROIR",
     "montees": "BOITE",
     "empreintes": "BOITE",
-    "otolithes": "BOITE",
+    "otolithes": "AUTRE",
     "opercules": "BOITE",
     "vertebres": "BOITE",
     "maxillaires": "BOITE",
@@ -129,6 +129,32 @@ DEFAULT_CONTAINERS = {
     "muscle": "SAC",
     "fraction_inconnue": "AUTRE",
 }
+
+# Runtime cache for user choices when encountering non-fixed container types.
+# Keys: sample_key -> choice string ('BOITE' or 'TIROIR')
+_USER_CONTAINER_CHOICES: Dict[str, str] = {}
+
+def _ask_container_for_sample_key(sample_key: str) -> str:
+    """Ask the user (GUI) whether this sample_key should use BOITE or TIROIR.
+    Falls back to 'BOITE' if no GUI is available or user cancels.
+    The result is not persisted to disk, only cached for the current run.
+    """
+    try:
+        # Import here to avoid adding a GUI dependency at module import time
+        from PySide6.QtWidgets import QInputDialog
+        title = "Contenant par défaut"
+        label = (
+            f"Pour le type d'échantillon '{sample_key}', quel contenant utiliser par défaut ?"
+        )
+        items = ["BOITE", "TIROIR"]
+        choice, ok = QInputDialog.getItem(None, title, label, items, 0, False)
+        if ok and choice in items:
+            return choice
+    except Exception:
+        # No GUI available or dialog failed; fall through to default
+        pass
+    # Default fallback
+    return "BOITE"
 
 TYPE_ECHANTILLON_TO_SAMPLE_KEY = [
     ("ecailles_brutes", ("eb", "brute", "brutes", "ec brute", "ec brutes", "ecaille brute", "ecailles brutes")),
@@ -467,30 +493,46 @@ def build_sample_uuid(sample_identifier: Any, sample_type_id: Any) -> str:
     return str(uuid.uuid5(COLLECT_SCIENCE_UUID_NAMESPACE, identity))
 
 
-def build_expected_sample_uuids(data_row: Dict[str, Any]) -> List[str]:
-    """Retourne les UUID qui seront générés pour une ligne affichée dans l'aperçu."""
-    code_echantillon = data_row.get("code_echantillon")
-    code_type_echantillon = data_row.get("code_type_echantillon")
-    t_code = normalize_text(code_echantillon) or build_code_echantillon_value(
+def _extract_existing_uuid(data_row: Dict[str, Any]) -> str:
+    raw = data_row.get("uuid") or data_row.get("UUID") or ""
+    text = str(raw or "").strip()
+    if not text:
+        return ""
+    lines = [line.strip() for line in text.replace("\r\n", "\n").split("\n") if line.strip()]
+    return lines[0] if lines else ""
+
+
+def _build_row_identifier(data_row: Dict[str, Any]) -> str:
+    identifier = normalize_text(
+        data_row.get("code_echantillon")
+        or data_row.get("num_individu")
+        or data_row.get("ref")
+        or data_row.get("numero_identification")
+        or ""
+    )
+    if identifier:
+        return identifier
+    return normalize_text(build_code_echantillon_value(
         lac_riviere=data_row.get("lac_riviere"),
-        code_type_echantillon=code_type_echantillon,
+        code_type_echantillon=data_row.get("code_type_echantillon"),
         date_capture=data_row.get("date_capture"),
         age_total=data_row.get("age_total"),
         numero_individu=data_row.get("num_individu"),
         type_peche=data_row.get("type_peche"),
-    )
-    if not t_code:
+    ))
+
+
+def build_expected_sample_uuids(data_row: Dict[str, Any]) -> List[str]:
+    """Retourne l'UUID stable qui sera utilisé pour une ligne affichée dans l'aperçu."""
+    explicit_uuid = _extract_existing_uuid(data_row)
+    if explicit_uuid:
+        return [explicit_uuid]
+
+    row_identifier = _build_row_identifier(data_row)
+    if not row_identifier:
         return []
 
-    present_sample_keys = resolve_present_sample_keys_from_dict(data_row)
-    has_parent = "ecailles_brutes" in present_sample_keys
-    uuids: List[str] = []
-    for key, (type_id, _sheet_label, suffix) in SAMPLE_TYPES.items():
-        if key not in present_sample_keys:
-            continue
-        sample_id = t_code if suffix is None or not has_parent else f"{t_code}{suffix}"
-        uuids.append(build_sample_uuid(sample_id, type_id))
-    return uuids
+    return [build_sample_uuid(row_identifier, "colisa-row")]
 
 
 def normalize_sampling_date(value: Any) -> Any:
@@ -685,9 +727,27 @@ def resolve_container_value(
     for start, end, label in rules:
         if start <= row_number <= end:
             return label
-    
-    # Utiliser le contenant par défaut si aucune règle n'est définie
-    return DEFAULT_CONTAINERS.get(sample_key)
+
+    # Si le type d'échantillon a un type de contenant fixé (ex: ecailles_brutes -> TIROIR),
+    # respecter cette règle.
+    fixed = CONTAINER_FIXED_TYPES.get(sample_key)
+    if fixed:
+        return fixed
+
+    # Si le conteneur par défaut est BOITE ou TIROIR, renvoyer tel quel.
+    default = DEFAULT_CONTAINERS.get(sample_key)
+    if default and default.upper() in {"BOITE", "TIROIR"}:
+        return default.upper()
+
+    # Pour les autres cas (ex: otolithes ou types non listés), demander à l'utilisateur
+    # une fois par type lors de l'exécution (sauf si pas d'interface graphique disponible).
+    choice = _USER_CONTAINER_CHOICES.get(sample_key)
+    if choice:
+        return choice
+
+    choice = _ask_container_for_sample_key(sample_key)
+    _USER_CONTAINER_CHOICES[sample_key] = choice
+    return choice
 
 
 def _format_csv_row(row: Tuple[Any, ...]) -> List[str]:
@@ -857,11 +917,15 @@ def generer_collec_science(
     sample_positions: Dict[str, int] = {key: 0 for key in SAMPLE_TYPES}
     rows_written = 0
     skipped_details: List[str] = []
+    missing_uuid_identifiers: Set[str] = set()
 
     for row_index, data_row in enumerate(all_rows, start=2):
         if not data_row:
             continue
 
+        explicit_uuid = _extract_existing_uuid({
+            "uuid": get_row_value(data_row, col_map, "uuid"),
+        })
         code_echantillon = get_row_value(data_row, col_map, "code_echantillon")
         code_type_echantillon = get_row_value(data_row, col_map, "code_type_echantillon")
         espece = get_row_value(data_row, col_map, "code_espece") or ""
@@ -895,6 +959,8 @@ def generer_collec_science(
                 reason="code echantillon impossible a construire",
             )
             continue
+        if not explicit_uuid:
+            missing_uuid_identifiers.add(t_code)
         num_individu_norm = t_code
 
         if allowed_values and num_individu_norm not in allowed_values:
@@ -954,6 +1020,10 @@ def generer_collec_science(
                 t_code=t_code,
             )
 
+            # Règle d'or : Collect-Science ne crée jamais d'UUID. La valeur
+            # provient exclusivement du fichier COLISA source.
+            sample_uuid = explicit_uuid or None
+
             ligne = [
                 sample_id, collection_id, type_id, sample_status_id,
                 country_code, country_code, referent_id, date_val,
@@ -962,7 +1032,8 @@ def generer_collec_science(
                 coerce_numeric_string(longueur),
                 str(lac_riviere) if lac_riviere else None,
                 md_num_individu,
-                build_sample_uuid(sample_id, type_id),
+                sample_uuid,
+                explicit_uuid or None,
             ]
 
             for col_idx, val in enumerate(ligne, start=1):
@@ -986,6 +1057,7 @@ def generer_collec_science(
         "csv_files": csv_files,
         "rows_written": rows_written,
         "skipped_details": skipped_details,
+        "missing_uuid_identifiers": sorted(missing_uuid_identifiers),
     }
 
 
@@ -1021,10 +1093,13 @@ def generer_collec_science_depuis_rows(
     sample_positions: Dict[str, int] = {key: 0 for key in SAMPLE_TYPES}
     rows_written = 0
     skipped_details: List[str] = []
+    missing_uuid_identifiers: Set[str] = set()
 
     for row_index, data_row in enumerate(rows, start=1):
         if not data_row:
             continue
+
+        explicit_uuid = _extract_existing_uuid(data_row)
 
         code_echantillon = data_row.get("code_echantillon")
         code_type_echantillon = data_row.get("code_type_echantillon")
@@ -1055,6 +1130,8 @@ def generer_collec_science_depuis_rows(
                 reason="code echantillon impossible a construire",
             )
             continue
+        if not explicit_uuid:
+            missing_uuid_identifiers.add(t_code)
 
         num_individu_norm = t_code
 
@@ -1107,6 +1184,10 @@ def generer_collec_science_depuis_rows(
                 t_code=t_code,
             )
 
+            # Règle d'or : Collect-Science ne crée jamais d'UUID. La valeur
+            # provient exclusivement du fichier COLISA source.
+            sample_uuid = explicit_uuid or None
+
             ligne = [
                 sample_id, collection_id, type_id, sample_status_id,
                 country_code, country_code, referent_id, date_val,
@@ -1115,7 +1196,8 @@ def generer_collec_science_depuis_rows(
                 coerce_numeric_string(longueur),
                 str(lac_riviere) if lac_riviere else None,
                 md_num_individu,
-                build_sample_uuid(sample_id, type_id),
+                sample_uuid,
+                explicit_uuid or None,
             ]
 
             for col_idx, val in enumerate(ligne, start=1):
@@ -1142,6 +1224,7 @@ def generer_collec_science_depuis_rows(
         "csv_files": csv_files,
         "rows_written": rows_written,
         "skipped_details": skipped_details,
+        "missing_uuid_identifiers": sorted(missing_uuid_identifiers),
     }
 def _resolve_sheet_name(workbook, colisa_sheet: str) -> str:
     if colisa_sheet in workbook.sheetnames:

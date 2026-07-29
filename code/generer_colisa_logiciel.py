@@ -11,12 +11,14 @@ from typing import Any, Dict, List
 import logging
 
 from openpyxl import load_workbook
+from openpyxl.utils import get_column_letter
 from config.constants import DEFAULT_TARGET_SHEET
 
 logger = logging.getLogger(__name__)
 
 import datacolisa_importer as core
 from domain.value_objects import DateCapture
+from generer_collec_science import build_expected_sample_uuids
 from infrastructure.file_value_normalizer import coerce_colisa_header_value
 
 
@@ -69,6 +71,15 @@ def _cell_value(row_values: List[Any], header_map: Dict[str, int], header_label:
     return row_values[zero_based]
 
 
+def _extract_existing_uuid(data_row: Dict[str, Any]) -> str:
+    raw = data_row.get("uuid") or data_row.get("UUID") or ""
+    text = str(raw or "").strip()
+    if not text:
+        return ""
+    lines = [line.strip() for line in text.replace("\r\n", "\n").split("\n") if line.strip()]
+    return lines[0] if lines else ""
+
+
 def _set_if_present(worksheet, row_index: int, header_map: Dict[str, int], header_label: str, value: Any) -> None:
     col_index = header_map.get(_normalize_header(header_label))
     if col_index:
@@ -81,6 +92,24 @@ def _clear_data_rows(worksheet) -> None:
     for row_index in range(2, worksheet.max_row + 1):
         for col_index in range(1, worksheet.max_column + 1):
             worksheet.cell(row_index, col_index).value = None
+
+
+def _ensure_uuid_column_at_end(worksheet, header_map: Dict[str, int]) -> Dict[str, int]:
+    uuid_col = header_map.get("uuid")
+    if uuid_col and uuid_col != worksheet.max_column:
+        col_letter = get_column_letter(uuid_col)
+        worksheet.move_range(
+            f"{col_letter}1:{col_letter}{worksheet.max_row}",
+            rows=0,
+            cols=worksheet.max_column - uuid_col,
+        )
+        header_map = _build_header_map(worksheet)
+        return header_map
+    if not uuid_col:
+        new_col = worksheet.max_column + 1
+        worksheet.cell(1, new_col).value = "UUID"
+        header_map["uuid"] = new_col
+    return header_map
 
 
 def _resolve_sheet_name(workbook, expected_sheet: str = DEFAULT_TARGET_SHEET) -> str:
@@ -148,7 +177,7 @@ def _rows_from_header_map(data_rows: List[List[Any]], header_map: Dict[str, int]
         row_values = list(values)
         code_echantillon = _cell_value(row_values, header_map, "Code echantillon")
         num_individu = _cell_value(row_values, header_map, "Numero individu (numero de capture)")
-        if not code_echantillon and not num_individu:
+        if not any(str(value or "").strip() for value in row_values):
             continue
 
         ot_gauche = _cell_value(row_values, header_map, "Presence de l'otolithe gauche (0 si non, 1 si oui)")
@@ -165,6 +194,7 @@ def _rows_from_header_map(data_rows: List[List[Any]], header_map: Dict[str, int]
             "ref": str(code_echantillon or num_individu or "").strip(),
             "code_echantillon": str(code_echantillon or "").strip(),
             "code_type_echantillon": str(_cell_value(row_values, header_map, "Code type echantillon") or "").strip(),
+            "uuid": str(_cell_value(row_values, header_map, "UUID") or "").strip(),
             "categorie": str(_cell_value(row_values, header_map, "Categorie pecheur") or "").strip(),
             "type_peche": str(_cell_value(row_values, header_map, "Type peche/engin") or "").strip(),
             "autre_oss": str(_cell_value(row_values, header_map, "Autre echantillon osseuses collectee sur l'individu OUI/NON") or "").strip(),
@@ -235,6 +265,7 @@ def generer_colisa_logiciel_depuis_rows(
     default_site_atelier: str = "",
     default_numero_correspondant: str = "",
     default_organisme: str = "INRAE",
+    create_missing_uuids: bool = False,
 ) -> Dict[str, Any]:
     if not template_path.exists():
         raise FileNotFoundError(f"Template introuvable: {template_path}")
@@ -244,16 +275,16 @@ def generer_colisa_logiciel_depuis_rows(
         worksheet = workbook["Echantillons"] if "Echantillons" in workbook.sheetnames else workbook[workbook.sheetnames[0]]
         _clear_data_rows(worksheet)
         header_map = _build_header_map(worksheet)
+        header_map = _ensure_uuid_column_at_end(worksheet, header_map)
 
         target_row = 2
+        missing_uuid_identifiers: List[str] = []
+        uuid_generated = 0
         for row in rows:
             if not row:
                 continue
 
             sample_code = _sample_code(row)
-            if not sample_code:
-                continue
-
             capture_number = _capture_number(row, sample_code)
             date_capture = _sampling_date(row.get("date_capture"))
             year_value = ""
@@ -264,7 +295,18 @@ def generer_colisa_logiciel_depuis_rows(
                 year_value = date_capture.year
                 month_value = date_capture.month
 
-            _set_if_present(worksheet, target_row, header_map, "UUID", None)
+            existing_uuid = _extract_existing_uuid(row)
+            # Le format COLISA logiciel ne crée jamais d'UUID : il recopie
+            # uniquement la valeur déjà enregistrée dans le COLISA source.
+            if not existing_uuid:
+                missing_uuid_identifiers.append(sample_code or capture_number or str(target_row))
+            uuid_value = existing_uuid
+            if not uuid_value and create_missing_uuids:
+                generated = build_expected_sample_uuids(row)
+                uuid_value = generated[0] if generated else None
+                if uuid_value:
+                    uuid_generated += 1
+            _set_if_present(worksheet, target_row, header_map, "UUID", uuid_value or None)
             _set_if_present(worksheet, target_row, header_map, "Code unite gestionnaire", default_code_unite_gestionnaire or "0042")
             _set_if_present(worksheet, target_row, header_map, "Pays", _clean_export_value(_country_code(row.get("pays_capture"))))
             _set_if_present(worksheet, target_row, header_map, "Site atelier", _clean_export_value(row.get("site_atelier", default_site_atelier)))
@@ -303,6 +345,11 @@ def generer_colisa_logiciel_depuis_rows(
 
         output_path.parent.mkdir(parents=True, exist_ok=True)
         workbook.save(output_path)
-        return {"excel": str(output_path), "rows_written": max(0, target_row - 2)}
+        return {
+            "excel": str(output_path),
+            "rows_written": max(0, target_row - 2),
+            "missing_uuid_identifiers": missing_uuid_identifiers,
+            "uuid_generated": uuid_generated,
+        }
     finally:
         workbook.close()

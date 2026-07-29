@@ -14,7 +14,6 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Set
 
 from openpyxl import load_workbook
-from infrastructure.app_paths import settings_dir
 from generer_collec_science import resolve_sample_keys_from_dict_type_and_storage
 
 from PySide6.QtCore import Qt, QAbstractTableModel, QModelIndex, Signal
@@ -29,7 +28,6 @@ from PySide6.QtWidgets import (
     QGroupBox,
     QHBoxLayout,
     QHeaderView,
-    QInputDialog,
     QLabel,
     QLineEdit,
     QMessageBox,
@@ -44,32 +42,6 @@ from PySide6.QtWidgets import (
 )
 
 # ---------------------------------------------------------------------------
-# Persistence
-# ---------------------------------------------------------------------------
-SETTINGS_DIR = settings_dir("DATACOLISA")
-CONTAINERS_FILE = SETTINGS_DIR / "containers_history.json"
-
-
-def _load_history() -> Dict[str, Any]:
-    if not CONTAINERS_FILE.exists():
-        return {}
-    try:
-        return json.loads(CONTAINERS_FILE.read_text(encoding="utf-8"))
-    except Exception:
-        return {}
-
-
-def _save_history(data: Dict[str, Any]) -> None:
-    try:
-        SETTINGS_DIR.mkdir(parents=True, exist_ok=True)
-        CONTAINERS_FILE.write_text(
-            json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8"
-        )
-    except Exception:
-        pass
-
-
-# ---------------------------------------------------------------------------
 # Types d'echantillons connus
 # ---------------------------------------------------------------------------
 SAMPLE_KEYS = [
@@ -77,8 +49,6 @@ SAMPLE_KEYS = [
     "nageoires", "opercules", "vertebres", "maxillaires",
     "chair_lyophilisee", "muscle", "fraction_inconnue",
 ]
-
-DEFAULT_CONTAINER_TYPES = ["TIROIR", "BOITE"]
 
 # ---------------------------------------------------------------------------
 # Decoration poisson (subtile, utilisee dans les titres de groupbox)
@@ -529,7 +499,7 @@ class ExcelPreviewView(QTableView):
         super().__init__(parent)
         self.setModel(model)
         self.setSelectionBehavior(QAbstractItemView.SelectRows)
-        self.setSelectionMode(QAbstractItemView.ExtendedSelection)
+        self.setSelectionMode(QAbstractItemView.NoSelection)
         self.setAlternatingRowColors(True)
         self.setShowGrid(True)
         self.verticalHeader().setVisible(True)
@@ -543,261 +513,23 @@ class ExcelPreviewView(QTableView):
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
 
     def selected_row_indices(self) -> List[int]:
-        return sorted({idx.row() for idx in self.selectedIndexes()})
+        # Sélection désactivée : renvoyer liste vide
+        return []
+
+    def visible_row_indices(self) -> List[int]:
+        return [row for row in range(self.model().rowCount()) if not self.isRowHidden(row)]
+
+    def select_rows(self, row_indices: List[int]) -> None:
+        # Sélection désactivée — opération sans effet
+        return
+
+    def select_all_visible_rows(self) -> None:
+        # Sélection désactivée — opération sans effet
+        return
 
 
-# ===========================================================================
-# Contenant
-# ===========================================================================
-
-# Routage automatique par type de contenant :
-#   TIROIR → écailles brutes uniquement
-#   BOITE  → tout le reste (montées, otolithes, empreintes…)
-#   Autre  → tous les types
-_CONTAINER_TYPE_SAMPLE_KEYS: Dict[str, Set[str]] = {
-    "TIROIR": {"ecailles_brutes"},
-    "BOITE": {"montees", "otolithes", "empreintes", "opercules", "vertebres",
-               "maxillaires", "nageoires", "chair_lyophilisee", "muscle", "fraction_inconnue"},
-}
-
-
-class ContainerEntry:
-    def __init__(self, ctype: str, label: str, rows: Optional[List[int]] = None,
-                 sample_type_key: Optional[str] = None):
-        self.ctype = ctype
-        self.label = label
-        self.rows: List[int] = rows or []
-        self.sample_type_key = sample_type_key
-
-    @property
-    def full_label(self) -> str:
-        return f"{self.ctype} {self.label}".strip() if self.label.strip() else self.ctype
-
-class ContainerPanel(QWidget):
-    assignment_changed = Signal()
-
-    def __init__(self, preview_model: ExcelPreviewModel, parent=None):
-        super().__init__(parent)
-        self._preview_model = preview_model
-        self._container_types: List[str] = list(DEFAULT_CONTAINER_TYPES)
-        self._entries: List[ContainerEntry] = []
-        self._active_sample_key: Optional[str] = None
-        self._build_ui()
-
-    def _build_ui(self):
-        main = QVBoxLayout(self)
-        main.setSpacing(0)
-        main.setContentsMargins(0, 0, 0, 0)
-
-        grp = QGroupBox(f"{FISH_ICON}  Contenants - TIROIR / BOITE")
-        v = QVBoxLayout(grp)
-        v.setSpacing(10)
-        v.setContentsMargins(12, 14, 12, 12)
-
-        # ── Type de contenant ──────────────────────────────────────
-        lbl_type = QLabel("Type de contenant")
-        lbl_type.setStyleSheet("font-weight:bold; font-size:11px; color:palette(windowText);")
-        v.addWidget(lbl_type)
-
-        type_row = QHBoxLayout()
-        type_row.setSpacing(6)
-        self._type_combo = QComboBox()
-        self._type_combo.addItems(self._container_types)
-        btn_plus = QPushButton("+")
-        btn_plus.setToolTip("Ajouter un type personnalise")
-        btn_plus.setFixedSize(30, 30)
-        btn_plus.setStyleSheet(
-            "QPushButton { background:#2A9D5C; color:white; font-weight:bold;"
-            "              border-radius:5px; border:none; font-size:16px; }"
-            "QPushButton:hover { background:#1E7A45; }"
-        )
-        btn_plus.clicked.connect(self._add_custom_type)
-        type_row.addWidget(self._type_combo, 1)
-        type_row.addWidget(btn_plus)
-        v.addLayout(type_row)
-
-        # ── Numéro ─────────────────────────────────────────────────
-        lbl_num = QLabel("Numero")
-        lbl_num.setStyleSheet("font-weight:bold; font-size:11px; color:palette(windowText);")
-        v.addWidget(lbl_num)
-
-        self._num_edit = QLineEdit()
-        self._num_edit.setPlaceholderText("ex :  123  ou  11B")
-        v.addWidget(self._num_edit)
-
-        # ── Type actif (mis à jour par le filtre du tableau de gauche) ──
-        self._active_type_lbl = QLabel(self._active_type_text(None))
-        self._active_type_lbl.setTextFormat(Qt.RichText)
-        self._active_type_lbl.setWordWrap(True)
-        self._active_type_lbl.setStyleSheet(
-            "font-size:10px; padding:6px 8px; border-radius:5px;"
-            "background:palette(alternateBase); color:palette(windowText);"
-            "border-left:3px solid #2C7DA0;"
-        )
-        v.addWidget(self._active_type_lbl)
-
-        # ── Aperçu ─────────────────────────────────────────────────
-        self._prev_lbl = QLabel("")
-        self._prev_lbl.setAlignment(Qt.AlignCenter)
-        self._prev_lbl.setMinimumHeight(28)
-        self._prev_lbl.setStyleSheet(
-            "font-weight:bold; font-size:12px; padding:4px 8px;"
-            "border-radius:5px; background:#D1FAE5; color:#065F46;"
-        )
-        self._type_combo.currentTextChanged.connect(self._refresh_prev)
-        self._num_edit.textChanged.connect(self._refresh_prev)
-        v.addWidget(self._prev_lbl)
-
-        # ── Bouton Assigner ─────────────────────────────────────────
-        btn_assign = QPushButton("Assigner aux lignes selectionnees")
-        btn_assign.setObjectName("btn_enregistrer")
-        btn_assign.clicked.connect(self._assign)
-        v.addWidget(btn_assign)
-
-        # ── Séparateur ──────────────────────────────────────────────
-        sep = QFrame()
-        sep.setFrameShape(QFrame.HLine)
-        sep.setStyleSheet("color: palette(mid); margin: 4px 0;")
-        v.addWidget(sep)
-
-        # ── Tableau des correspondances ─────────────────────────────
-        lbl_table = QLabel("Correspondances assignees")
-        lbl_table.setStyleSheet("font-weight:bold; font-size:11px; color:palette(windowText);")
-        v.addWidget(lbl_table)
-
-        self._table = QTableWidget(0, 3)
-        self._table.setHorizontalHeaderLabels(["Contenant", "Lignes", ""])
-        self._table.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
-        self._table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeToContents)
-        self._table.horizontalHeader().setSectionResizeMode(2, QHeaderView.Fixed)
-        self._table.setColumnWidth(2, 34)
-        self._table.verticalHeader().setVisible(False)
-        self._table.setSelectionMode(QAbstractItemView.SingleSelection)
-        self._table.setEditTriggers(QAbstractItemView.NoEditTriggers)
-        self._table.setAlternatingRowColors(True)
-        self._table.setMinimumHeight(120)
-        v.addWidget(self._table, 1)
-
-        main.addWidget(grp, 1)
-        self._refresh_prev()
-
-    def _refresh_prev(self):
-        ctype = self._type_combo.currentText().strip()
-        num   = self._num_edit.text().strip()
-        full_label = f"{ctype} {num}".strip() if num else ctype
-        self._prev_lbl.setText(f"->  {full_label}" if full_label else "")
-        self._prev_lbl.setStyleSheet(
-            "font-weight:bold; font-size:12px; padding:4px 8px; border-radius:5px;"
-            "background:#D1FAE5; color:#065F46;"
-        )
-
-    def _add_custom_type(self):
-        text, ok = QInputDialog.getText(self, "Nouveau type", "Nom du type de contenant :")
-        if ok and text.strip():
-            name = text.strip()
-            if name not in self._container_types:
-                self._container_types.append(name)
-                self._type_combo.addItem(name)
-            self._type_combo.setCurrentText(name)
-
-    @staticmethod
-    def _active_type_text(key: Optional[str]) -> str:
-        if key is None:
-            return (
-                "<b>Mode : tous les types</b><br>"
-                "Selectionne un type dans le filtre pour travailler type par type."
-            )
-        labels = {
-            "ecailles_brutes": "Ecailles brutes → <b>TIROIR</b>",
-            "montees": "Ecailles montees → <b>BOITE</b>",
-            "empreintes": "Empreintes → <b>BOITE</b>",
-            "otolithes": "Otolithes → <b>BOITE</b>",
-            "opercules": "Opercules → <b>BOITE</b>",
-            "nageoires": "Nageoires → <b>BOITE</b>",
-            "vertebres": "Vertebres → <b>BOITE</b>",
-            "maxillaires": "Maxillaires → <b>BOITE</b>",
-            "chair_lyophilisee": "Chair lyophilisee → <b>BOITE</b>",
-            "muscle": "Muscle → <b>BOITE</b>",
-            "fraction_inconnue": "Fraction inconnue → <b>BOITE</b>",
-        }
-        return f"<b>Type actif :</b> {labels.get(key, key)}"
-
-    def set_active_sample_type(self, key: Optional[str]) -> None:
-        """Appele par le filtre du dialogue principal pour synchroniser le panel."""
-        self._active_sample_key = key
-        self._active_type_lbl.setText(self._active_type_text(key))
-        if key == "ecailles_brutes":
-            self._type_combo.setCurrentText("TIROIR")
-        elif key is not None:
-            # Tout autre type va dans une BOITE
-            self._type_combo.setCurrentText("BOITE")
-
-    def _assign(self):
-        view = self._find_preview_view()
-        if view is None:
-            return
-        selected = view.selected_row_indices()
-        if not selected:
-            QMessageBox.information(self, "Aucune selection",
-                "Selectionne d'abord des lignes dans le tableau de gauche.")
-            return
-        ctype = self._type_combo.currentText().strip()
-        num = self._num_edit.text().strip()
-        if not ctype:
-            QMessageBox.warning(self, "Type manquant", "Choisis un type de contenant.")
-            return
-        full_label = f"{ctype} {num}".strip() if num else ctype
-
-        for e in self._entries:
-            e.rows = [r for r in e.rows if r not in selected]
-
-        self._entries.append(ContainerEntry(ctype, num, sorted(selected), self._active_sample_key))
-        self._entries = [e for e in self._entries if e.rows]
-        self._preview_model.set_container_for_rows(selected, full_label)
-        self._refresh_table()
-        self.assignment_changed.emit()
-
-    def _find_preview_view(self) -> Optional[ExcelPreviewView]:
-        p = self.parent()
-        while p is not None:
-            v = p.findChild(ExcelPreviewView)
-            if v:
-                return v
-            p = p.parent() if hasattr(p, "parent") else None
-        return None
-
-    def _refresh_table(self):
-        self._table.setRowCount(0)
-        for i, entry in enumerate(self._entries):
-            self._table.insertRow(i)
-            item = QTableWidgetItem(entry.full_label)
-            item.setForeground(QBrush(QColor("#2E86AB")))
-            f = QFont(); f.setBold(True); item.setFont(f)
-            self._table.setItem(i, 0, item)
-            type_tag = f"[{entry.sample_type_key}] " if entry.sample_type_key else ""
-            rows_text = type_tag + ", ".join(str(r + 1) for r in entry.rows)
-            item_r = QTableWidgetItem(rows_text)
-            item_r.setTextAlignment(Qt.AlignLeft | Qt.AlignVCenter)
-            self._table.setItem(i, 1, item_r)
-            btn = QPushButton("X")
-            btn.setFixedSize(22, 22)
-            btn.setStyleSheet("QPushButton{background:#dc2626;color:white;font-weight:bold;"
-                              "border-radius:3px;}QPushButton:hover{background:#b91c1c;}")
-            btn.clicked.connect(lambda c, idx=i: self._remove_entry(idx))
-            cell = QWidget(); hl = QHBoxLayout(cell)
-            hl.setContentsMargins(2, 1, 2, 1); hl.addWidget(btn)
-            self._table.setCellWidget(i, 2, cell)
-            self._table.setRowHeight(i, 24)
-
-    def _remove_entry(self, index: int):
-        if 0 <= index < len(self._entries):
-            self._preview_model.set_container_for_rows(self._entries[index].rows, "")
-            self._entries.pop(index)
-            self._refresh_table()
-            self.assignment_changed.emit()
-
-    def get_entries(self) -> List[ContainerEntry]:
-        return list(self._entries)
+# Contenant UI: removed. Container assignment is now handled by the generator
+# using fixed rules and the runtime prompt for unknown types.
 
 
 # ===========================================================================
@@ -819,7 +551,7 @@ class CollecScienceSourceDialog(QDialog):
         source_label: Optional[str] = None,
     ):
         super().__init__(parent)
-        self.setWindowTitle("Collec-Science - Selection et contenant")
+        self.setWindowTitle("Collec-Science")
         self.setMinimumSize(1100, 640)
         self.setModal(True)
         self.setStyleSheet(DIALOG_STYLE)
@@ -886,9 +618,7 @@ class CollecScienceSourceDialog(QDialog):
             "<b>Workflow par type d'echantillon :</b><br>"
             "1. Choisis un type dans le filtre (ex : <i>Ecailles brutes</i>)<br>"
             "2. Le contenant (TIROIR / BOITE) se positionne automatiquement<br>"
-            "3. Selectionne les lignes + saisis le numero du contenant<br>"
-            "4. Clique <b>Assigner</b> — puis passe au type suivant<br>"
-            "Les lignes colorees sont deja assignees."
+            "3. Vérifie l'aperçu et enregistre le fichier généré.<br>"
         )
         instructions.setTextFormat(Qt.RichText)
         instructions.setWordWrap(True)
@@ -957,17 +687,17 @@ class CollecScienceSourceDialog(QDialog):
         main.addLayout(top_band)
 
         # ═══════════════════════════════════════════════════════════
-        # SPLITTER : tableau sélection | panel contenants
+        # SPLITTER : tableau d'aperçu
         # ═══════════════════════════════════════════════════════════
         splitter = QSplitter(Qt.Horizontal)
         splitter.setChildrenCollapsible(False)
 
-        # Gauche — tableau de sélection des lignes
+        # Gauche — tableau d'aperçu des échantillons
         left = QWidget()
         lv = QVBoxLayout(left)
         lv.setContentsMargins(0, 0, 0, 0)
         lv.setSpacing(4)
-        grp_l = QGroupBox("Echantillons - selection des lignes")
+        grp_l = QGroupBox("Echantillons - aperçu")
         gl = QVBoxLayout(grp_l)
         gl.setSpacing(6)
         gl.setContentsMargins(8, 12, 8, 8)
@@ -1010,23 +740,11 @@ class CollecScienceSourceDialog(QDialog):
         
         gl.addLayout(filter_row)
         
-        hint = QLabel("Clic | Maj+clic pour une plage | Ctrl+clic pour plusieurs lignes")
-        hint.setStyleSheet("font-size:10px; color:palette(mid); font-style:italic;")
-        gl.addWidget(hint)
         self._preview_view = ExcelPreviewView(self._preview_model)
         gl.addWidget(self._preview_view)
         lv.addWidget(grp_l)
         splitter.addWidget(left)
-
-        # Droite — panel d'assignation des contenants
-        right = QWidget()
-        rv = QVBoxLayout(right)
-        rv.setContentsMargins(0, 0, 0, 0)
-        self._container_panel = ContainerPanel(self._preview_model, parent=self)
-        rv.addWidget(self._container_panel)
-        splitter.addWidget(right)
-
-        splitter.setSizes([680, 380])
+        splitter.setSizes([1080])
         main.addWidget(splitter, 1)
 
         sep = QFrame()
@@ -1059,121 +777,35 @@ class CollecScienceSourceDialog(QDialog):
                 type_str = self._preview_model.get_sample_type_for_row(row)
                 keys_in_row = {k.strip() for k in type_str.split(",")}
                 self._preview_view.setRowHidden(row, selected_type not in keys_in_row)
-        self._container_panel.set_active_sample_type(selected_type)
 
     def _clear_filter(self):
         self._filter_combo.setCurrentIndex(0)
+
+    def _update_selection_info(self) -> None:
+        # Sélection désactivée — aucune information à afficher.
+        return
 
     def get_container_assignments(self) -> Dict[int, str]:
         return self._preview_model.all_containers()
 
     def get_selected_row_indices(self) -> List[int]:
-        selected = self._preview_view.selected_row_indices()
-        if selected:
-            return selected
-        if self._software_rows:
-            return list(range(len(self._software_rows)))
-        return []
+        # La sélection ayant été retirée, on renvoie toutes les lignes du tableau.
+        return list(range(self._preview_model.rowCount()))
 
     def get_selected_software_rows(self) -> List[Dict[str, Any]]:
         if not self._software_rows:
             return []
-        selected = self.get_selected_row_indices()
-        return [self._software_rows[i] for i in selected if 0 <= i < len(self._software_rows)]
+        # Renvoie toutes les lignes du logiciel (aucune sélection possible).
+        return list(self._software_rows)
 
     def build_containers_dict(self) -> Dict[str, Any]:
         """
         Construit le dict containers pour generer_collec_science().
         Format : {sample_key: "1-5=BOITE 123\\n6-10=TIROIR 11B"}
         """
-        entries = self._container_panel.get_entries() if hasattr(self, "_container_panel") else []
-        if not entries:
-            return {}
-
-        from generer_collec_science import (
-            COLISA_REQUIRED_HEADERS,
-            infer_sample_key_from_type,
-            normalize_header,
-            valeur_present,
-        )
-
-        headers = getattr(self._preview_model, "_headers", [])
-        rows = getattr(self._preview_model, "_rows", [])
-
-        def _row_dict(row_idx: int) -> Dict[str, Any]:
-            if row_idx < 0 or row_idx >= len(rows):
-                return {}
-            values = rows[row_idx]
-            row: Dict[str, Any] = {}
-            for col_idx in range(min(len(headers), len(values))):
-                header = headers[col_idx]
-                if header == "container_parent_identifier":
-                    continue
-                value = values[col_idx]
-                row[header] = value
-
-                normalized = normalize_header(header)
-                if normalized in SAMPLE_KEYS:
-                    row[normalized] = value
-                    continue
-
-                for key, aliases in COLISA_REQUIRED_HEADERS.items():
-                    normalized_aliases = {normalize_header(alias) for alias in aliases}
-                    if normalized in normalized_aliases:
-                        row[key] = value
-                        break
-            return row
-
-        def _sample_keys_for_row(row_idx: int) -> List[str]:
-            row = _row_dict(row_idx)
-            explicit_keys = [
-                key for key in SAMPLE_KEYS
-                if valeur_present(row.get(key))
-            ]
-            if explicit_keys:
-                return explicit_keys
-            inferred = infer_sample_key_from_type(row.get("code_type_echantillon"))
-            return [inferred] if inferred in SAMPLE_KEYS else []
-
-        containers_by_sample: Dict[str, str] = {}
-        for entry in entries:
-            if not entry.rows:
-                continue
-            # Cas 1 : assignation faite en mode type-par-type (chemin normal)
-            if entry.sample_type_key:
-                grouped_rows: Dict[str, List[int]] = {
-                    entry.sample_type_key: [r + 1 for r in sorted(entry.rows)]
-                }
-            else:
-                # Cas 2 : assignation sans filtre actif — routage par type de contenant
-                allowed_keys = _CONTAINER_TYPE_SAMPLE_KEYS.get(entry.ctype.upper())
-                grouped_rows = {}
-                for row_idx in sorted(entry.rows):
-                    preview_row_number = row_idx + 1
-                    for sample_key in _sample_keys_for_row(row_idx):
-                        if allowed_keys is not None and sample_key not in allowed_keys:
-                            continue
-                        grouped_rows.setdefault(sample_key, []).append(preview_row_number)
-
-            for sample_key, sample_rows in grouped_rows.items():
-                rows_s = sorted(sample_rows)
-                rule_lines: List[str] = []
-                start = end = rows_s[0]
-                for r in rows_s[1:]:
-                    if r == end + 1:
-                        end = r
-                    else:
-                        rule_lines.append(f"{start}-{end}={entry.full_label}")
-                        start = end = r
-                rule_lines.append(f"{start}-{end}={entry.full_label}")
-
-                existing_text = containers_by_sample.get(sample_key, "")
-                new_text = "\n".join(rule_lines)
-                containers_by_sample[sample_key] = (
-                    f"{existing_text}\n{new_text}".strip() if existing_text else new_text
-                )
-
-        return containers_by_sample
+        # Aucun choix manuel de contenant dans cette interface.
+        # Les règles fixes sont appliquées directement par le générateur.
+        return {}
 
     def use_fixed_md_num_individu_column(self) -> bool:
         """Retro-compatibilite : True si aucune colonne specifique n'est choisie."""
